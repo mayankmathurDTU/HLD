@@ -1,0 +1,48 @@
+1. How short URL should be?
+2. Understand Traffic : 
+   10 Million URL per day -> 365x10 Million URL per Year -> 365x10x100 Million URL in 100 years -> 365 Billion URL in 100 years
+    i should be able to generate 365 Billion URL in 100 years. 
+
+3. What characters can i use -> 0 to 9, a to z and A to Z = total 62
+      (62)
+      (62) (62)
+      (62) (62) (62)
+      ..
+      ..
+      (62)(62)(62)(62)(62)(62)(62) -> 62^7 = 3.5 trillion -> we can use 7 characters to generate more than 365 Billion URL, where each character has 62 options
+
+4. To Generate short URL-> Use HASH Function
+    Inbuild HASH Function
+    (a) MD5-> 128 bit hash function : 1 hexadecimal digit is 4 bits. (How? Hexadecimal = 16 option for every digit -> (2)(2)(2)(2) = 16 digits generation in binary)
+                so 1 Byte = 2 hexadecimal digit -------> 128 bit = 16 Byte = 32 hexadecimal digits, but we want url to be of 7 digit.
+    (b) SHA-1 -> 160 bit hash function : generated 40 digit hexadecimal value
+
+5. we need to do hashing on our own -> Base62 encoding
+      ex -> URL is 1000
+        in base62 ->       62 | 1000        | 8(remainder)   ^  
+                           62 | 16(quotent) | 16             | 
+                           62 | 0           |                |
+      1000 becomes (16)(8) -> g8 -------->> we want 7 length, but got only 2
+
+Issues : Length generated was less than 7, in that case we can do padding with any character let says '+'
+Issue2 : How to store in DB. 
+We use SQL Bata Base -> | Id | Short URL | Long URL |
+                        |    |           |          |
+                        |    |           |          |
+                        |    |           |          |
+
+How to generate this id? This id should also be unique.
+
+(a) if we have single DB, no problem, all Ids will be unique -> not possible, cant store 365 Billion in one DB
+(b) Use Ticket Server, TicketServer is a DB which is like centralized auto increment service -> differenct APP servers will hit this 
+    TicketServer -> so different DB request id from this. -> if this fails, whole system fails. 
+(c) snowflake  -> ID generation method -> works -> based on timestamp -> has certain format
+      (1 bit )(41 bits for timestamp)(bits for machine id)(Sequence number) -> this id is always unique as
+        timestamps are always different from same machine, if 2 separate machine send req at same time, machine id is unique. 
+(d) best way : ZOO KEEPER(Apache Product) : way for distributed applications to coordinate with each other.  
+        we can have 3.5 trillion combinations. ZOO keeper will make ranges from 0-5 million, 5-10 million, 10-15 million 
+        each range is alloted to differenct app server. when an app server fills its range, zoo keeper gives it new range. 
+        so each app server generates a unique id surely.
+
+  
+                              
