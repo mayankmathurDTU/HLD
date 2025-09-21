@@ -1,0 +1,82 @@
+Functional Requirements: 
+-> input start location and destination, match ride with nearby rider
+-> driver should be able to accept deny ride, and navigate to pick up and drop
+
+Non Functional requirements: 
+-> Low latency matching(Less than one min or say fail) -> Consistency of driver matching
+-> availability outside of matching
+-> handle high throughout : surges in peek hours 
+
+Core Entities : Ride Object, Drivers, Riders, Location(of drivers for matching)
+
+API : 
+getFareEstimate, requestRide(asynchronous), locationUpdate(of drivers), accept or deny ride, navigate
+
+
+  Rider (iOS/Android)             Driver (iOS/Android)
+          ^                               ^
+          |                               |
+          V                               V 
+          +-----------+   +---------------+
+                      |   |
+                  AWS Managed API Gateway
+             - Load balancing
+             - Routing
+             - Authentication
+             - SSL termination
+             - Rate limiting
+                      |
+   -----------------------------------------------------
+   |                        |                          |
+requestRide()       getFareEstimate(),          updateLocation()
+   |                 -comes from Rider                 |
+   |                                                   |
+   |                 accept(), update()                |
+   |                 -comes from Driver                |
+   |                        |                          v
+   v                        v                     LOCATION SERVICE
+RIDE MATCHING SERVICE     RIDE SERVICE              (stores driver
+ (matches drivers &     (fare estimation)           locations)
+     riders)                  |                         |                          Ride: id, RiderId, DriverId?, Fare, ETA, Source, Destination, Status (fare-estimated | matched | ...), ...
+      |                       |                         |                          Ride: id, metadata
+      |                       |                         |                          Driver: id, metadata, Status (in_ride | offline | available)
+      |                       |                         |          
+      |                       |                         v
+      |                       v                   Location DataBase
+      |                     Primary DB                  ^
+      |               (Ride, Driver data)               |
+      |                                          getDriverLocation()
+      |                                                 | 
+      ---------------------------------------------------
+      |
+      v
+ Notification Service (APN, Firebase)
+            |
+          Driver
+
+
+
+Issue : 
+Let say we have 5 million driver, 3 million are currently active, we update location every 5 seconds, 
+so per second -> 600K requests -> 600L TPS (Transaction per second) --->> how to reduce -> if driver is currently inactive or not moving, dont update location
+PostGres can only handle 2K-4K TPS
+
+QuadTrees -> Take a map and recursively split it into 4 regions till number of drivers is less than a given k value. 
+          -> location will fall in one of there splits/regions,  give call to all these drivers
+          -> to handle increased number of transaction: insert a queue and start batching, batch of say 4k requests then send to PostGres
+          -> ISSUE :latency introduced in system, AS DRIVER LOCATION CHANGES-> WE NEED TO REINDEX QUAD TREE AND MAKE NEW REGIONS 
+          -> quad tree is great when you have uneven distribution of drivers in a location
+
+User GeoHasing : Similar to quad tree but doesnt require maintaining a tree. 
+          -> just keep spliting the whole wrold till we get a precision value related to area
+          -> Benefit: easy to store, dont require any big data structure, its just a string
+          -> good if high frequency of write to location DB  
+
+
+Ensure matching consistency : 
+1. dont send more than 1 request for a ride at a given time
+2. If driver doesnt accept ride in 10 seconds, send to another driver -> use reddis ttl
+
+
+High Surges 
+1. add a queue before ride matching service, our service pulls requests from it. queue can be partitioned baed on regions
