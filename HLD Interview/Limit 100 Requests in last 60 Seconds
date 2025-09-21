@@ -1,0 +1,160 @@
+Imagine you have a system that receives millions of requests every minute. Your task is to design a way for this system to 
+handle only a limited number of these requests—specifically, it should accept no more than 100 requests from all the ones 
+that arrived in the last 60 seconds. The goal is to decide quickly whether to accept or reject each new request based on 
+this rule. Please explain what information you would store, which data structures you would use, and how you would 
+implement this system to make it work efficiently.
+
+Data Structures to Use
+Use a deque (double-ended queue) to store timestamps in ascending order (oldest at front, newest at back). This supports:
+
+O(1) addition of new timestamps (push_back).
+O(1) removal of old timestamps (pop_front while checking the front).
+O(1) size check.
+
+How It Works (High-Level Algorithm)
+
+Initialization: Create an empty deque for timestamps. Use a mutex/lock for thread safety if multi-threaded.
+On each incoming request (with arrival timestamp now):
+
+Prune the deque: While the front timestamp < now - 60 seconds, pop_front.
+Check limit: If deque.size() < 100, accept the request, push_back now to the deque.
+Else, reject the request.
+
+
+Edge cases:
+
+If requests burst in (e.g., 1 million in 1 second), only the first 100 get accepted; others rejected until the window slides.
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+#include <deque>
+#include <mutex>
+#include <chrono>
+
+class RateLimiter {
+private:
+    const int MAX_REQUESTS = 100;
+    const int WINDOW_SECONDS = 60;
+    std::deque<long long> timestamps; // Store timestamps in milliseconds
+    std::mutex mtx; // For thread safety
+
+public:
+    RateLimiter() {}
+
+    bool shouldAccept() {
+        std::lock_guard<std::mutex> lock(mtx); // RAII lock
+        auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        // Prune timestamps older than 60 seconds
+        while (!timestamps.empty() && timestamps.front() < (now - (WINDOW_SECONDS * 1000))) {
+            timestamps.pop_front();
+        }
+
+        // Check if under limit
+        if (timestamps.size() < MAX_REQUESTS) {
+            timestamps.push_back(now);
+            return true; // Accept the request
+        }
+        return false; // Reject the request
+    }
+};
+
+// Usage example
+int main() {
+    RateLimiter limiter;
+    // For each incoming request
+    if (limiter.shouldAccept()) {
+        // Process the request
+    } else {
+        // Reject or queue the request
+    }
+    return 0;
+}
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Imagine your system is overwhelmed with trillions of incoming requests. You need to design it so that it
+accepts no more than 1 billion requests from all those that arrived in the last 60 seconds. For each new 
+request, the system must quickly decide whether to accept or reject it based on this limit.
+
+Key Challenges at This Scale
+
+Throughput: Trillions of requests could mean billions per second in bursts—needs O(1) decisions.
+Memory: Can't store 1 billion individual timestamps (would take ~8 GB just for longs, plus overhead).
+Accuracy: Exact counting is hard; approximations are acceptable for rate limiting at this scale to avoid overload.
+Distribution: This must be distributed across many nodes (e.g., thousands of servers); a single node can't handle trillions.
+
+Information to Store 
+
+Accepted request counts per time bucket: Instead of keeping track of every single request time, we group them 
+    into small time periods, like 1-second chunks. For each chunk, we store two things: the starting time of that 
+    chunk and the number of requests accepted in it. This way, we don’t need to remember every request individually.
+
+Current total accepted in window: We keep a running total of all the requests accepted in the last 60 seconds.
+    This number gets updated slowly (lazily) as old chunks are removed and new ones are added, so we don’t have 
+    to recalculate everything from scratch every time.
+
+Current time: We need to know the current time to figure out which time chunk a new request belongs to and 
+    to remove old chunks that are no longer in the 60-second window.
+
+
+Data Structures to Use
+
+Deque or circular array for buckets: Store ~60 entries (one per second), each a struct/pair: {timestamp: long, count: long}.
+Deque: Efficient for shifting (push_back new bucket, pop_front old ones).
+  Why? O(1) add/prune, bounded size (≤60).
+Atomic long for total count: For fast reads/updates in distributed setups.
+Distributed store: Redis (sorted set or list) or Apache Kafka for sharing state across nodes. Use pub-sub for updates.
+
+
+
+#include <deque>
+#include <mutex>
+#include <chrono>
+#include <atomic>
+
+struct Bucket {
+    long long start_time; // ms
+    std::atomic<long long> count{0};
+};
+
+class RateLimiter {
+private:
+    const long long MAX_REQUESTS = 1'000'000'000LL;
+    const int WINDOW_SECONDS = 60;
+    const int BUCKET_DURATION_MS = 1000; // 1s buckets
+    std::deque<Bucket> buckets;
+    std::atomic<long long> total_count{0};
+    std::mutex mtx;
+
+    long long getNow() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+
+    void advanceBuckets(long long now) {
+        std::lock_guard<std::mutex> lock(mtx);
+        // Prune old buckets
+        while (!buckets.empty() && buckets.front().start_time <= now - (WINDOW_SECONDS * 1000LL)) {
+            total_count -= buckets.front().count;
+            buckets.pop_front();
+        }
+        // Add new bucket if needed
+        if (buckets.empty() || buckets.back().start_time < now - BUCKET_DURATION_MS) {
+            buckets.push_back({now / BUCKET_DURATION_MS * BUCKET_DURATION_MS, 0});
+        }
+    }
+
+public:
+    bool shouldAccept() {
+        long long now = getNow();
+        advanceBuckets(now);
+        if (total_count < MAX_REQUESTS) {
+            buckets.back().count++;
+            total_count++;
+            return true;
+        }
+        return false;
+    }
+};
+
+// Usage: RateLimiter limiter; if (limiter.shouldAccept()) { /* process */ }
