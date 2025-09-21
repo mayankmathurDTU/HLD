@@ -1,0 +1,9 @@
+1. Single Server
+2. Application and DB server Separation
+3. Load Balancer + Multiple App servers
+4. Data Base Replication(Master Slave)
+5. Cashing DB
+6. CDN to Cashe API calls
+7. Add Data Cantre
+8. Add messaging queue along with APP server for asynchronous tasks
+9. DB Scaling -> Vertiacl(Add RAM and CPU capability) and Horizontal(Sharding)
