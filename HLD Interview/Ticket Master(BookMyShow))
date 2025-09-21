@@ -1,0 +1,111 @@
+Functional Requirements(User should be able to)
+-> book tickets, View an event, search and event,viewing a seat map, chosing a seat map. 
+
+Non Functional requirements: 
+-> Strong Consistency for booking tieckts
+-> high availablity for search and viewing events
+-> low latency search
+-> scalability to handle surges from popular events
+
+Core Entities 
+-> Event(Admin will add them), Venue(where event is hosted), Performer(who is performing), ticket(all tickets for a gien event)
+
+API
+viewEvent, searchEvent, bookSeat, confirmPayment
+
++--------+        +--------------------------------+
+| Client | <----> |   API Gateway                  |
+|        |        | - authentication               |
++--------+        | - rate limiting                |
+                  | - routing                      |
+                  +--------------------------------+
+                      |       |       |
+                      v       v       v
+                +---------+ +----------------+ +-----------+
+                | Search  | | Event CRUD     | | Booking   |---> +------------------------------+
+                | Service | | Service        | | Service   |     | Ticket Lock (Redis)          |
+                +---------+ +----------------+ +-----------+     | {ticketId:true} TTL 10       |
+                      |            |                |   |        +------------------------------+
+                      v            v                |   v        
+               +--------------------------------+   | +------------------+ Stripe : 3rd party payment processor, we post to stripe with payment info, stripe handles it asynchronously
+               |           Database (Postgres)  |   | | Stripe (Payment) | Responds back to system via not single callback,  but via Webhook(we register a callback URL and have some
+               +--------------------------------+   | +------------------+                                                              endpoints in our system)  
+                      |            |                |
+        +-------------+            |                |
+        |                          |                |
+        v                          v                v
++-----------------------------------------------------------------------------------------------+
+| Event: id, venueId, performerId, tickets[], name, description                                 |  (this is meta data, foreign keys to other data)
+| Venue: id, location, seatMap                                                                  | PostGres-> SQL data base, 
+| Ticket: id, eventId, seat, price, status(available, reserved,booked), userId                  |  satisfies our request for ACID properties on tickets
++-----------------------------------------------------------------------------------------------+  
+
+Problems: 
+1. is user reserves a ticket then closes the system, ticket state stays rserved forever. : Cron Job to querry the Ticket table(add timestamp in ticket data), Distributed Lock: Redis with TTL
+2. Search is slow : Elastic Search -> Tocanize the string or sets of string to create terms from them. 
+3. To keep data synced b/w Elastic search and Main DB-> handle in Application code-> if change in DB then do in Elastic Search as well. 
+      Or : Change Data Capture(CDC) : changes to primary data store are put in stream and then sent to elastic search. 
+4. Popular Querries : have CDN Cache the API calls
+5. Coldplay like events : use "virtual waiting queue", instead of seeing the event page, user enters waiting queue, queue can be redis or sorted set(based on time), 
+      -> use LONG POOLING to keep seats updated real time, use WEB SOCKETS to open bi directional persistant connection, 
+      -> SERVER SENT EVENTS : server sends info to clients not only when client sends response, but keeps sending till connection is open
+    -------------SSE is unidirectional and WEB SOCKETS are bi-directional------------
+6. Shard PostGres DB on eventID or VenueID
+
+
+
+
+
+Final UML : 
+ GET /search?term={term}&location={location}&type={type}&date={date} -> Partial<Event[]>
+
++--------+        +-----+        +----------------------------------+
+| Client | <----> | CDN | <----> | API Gateway                      |
+|        |        |     |        | - authentication                 |
++--------+        +-----+        | - rate limiting                  |
+                                 | - routing                        |
+                                 +----------------------------------+
+                                      |        |                  |
+                                      v        v                  V
+                                +---------+ +----------------+ +-----------+
+                                | Search  | | Event CRUD     | | Booking   |      +------------------+
+                                | Service | | Service        | | Service   |----> | Ticket Lock      |
+                                +---------+ +----------------+ +-----------+      | (Redis)          |
+                                      |            |                |             | {ticketId:true}  | 
+                                      v            v                |             | TTL 10           | 
+                         +-------------------+   +----------------+ |              +------------------+
+                         | Elasticsearch     |   | Database       | |
+                         | (as operator)     |   | (Postgres)     | |
+                         +-------------------+   +----------------+ |
+                                      ^             ^    ^          | 
+                                      |             |    |          |
+                                      |             |    |          |
+                                      |             |    |          |
+                                      +-------------+    |          |
+                                                         |          |
+                                           +-------------+          |
+                                           |                        |
+                                           v                        V  
+                                 +-----------------------------------------+
+                                 | Event: id, venueId, performerId,        |
+                                 |        tickets[], name, description     |
+                                 | Venue: id, location, seatMap            |
+                                 | Performer: id, ...                      |
+                                 | Ticket: id, eventId, seat, price,       |
+                                 |        status, userId                   |
+                                 +-----------------------------------------+
+
+Notes:
+- playlist: Event1, Event2, Event3
+- sublist: Event5, Event6, Event7
+- node query caching
+
+Booking Service also connects to:
+- Stripe (payment)
+- Virtual waiting room
+
+
+
+
+                     
+                     
