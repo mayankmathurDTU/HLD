@@ -1,0 +1,49 @@
+1. What is dedup_
+In your code:
+unordedred_set<int> dedup_; // avoid duplicates in both heaps
+  - Its purpose is to avoid adding the same floor twice to the elevator's stop queues
+    (upStops_ and downStops_).
+  - Think of it like a "visited floors" or "already requested floors" tracker.
+
+For example:
+addStop(5); // first time -> added
+addStop(5); // second time -> ignored, because it's already in dedup_
+
+dedup stands for de-duplication—removing duplicates.
+
+2. Why unordered_set and not set
+  - unordered_set is implemented using a hash table.
+  - Lookup/insert/erase O(1) average.
+  - set is implemented as a balanced binary tree, giving O(log n) operations and
+    sorted order.
+
+Here, we only care about existence, not order. So unordered_set is faster.
+
+3. Why not rely on heaps alone?
+The elevator has two heaps:
+priority_queue<int, vector<int>, std::greater<int>> upStops_;
+priority_queue<int> downStops_;
+
+  - Heaps allow us to quickly get the next stop (peekNextStop()).
+  - But heaps don't efficiently check for duplicates.
+    - To check if a floor is already in the heap, you'd have to scan all elements
+      (O(n))—slow.
+  - Using dedup_, allows instant O(1) check:
+
+if (dedup_.count(floor)) return true; // already scheduled
+
+4. Important Note on set vs unordered_set
+  - set<int> -> automatically sorted, O(log n) operations.
+  - unordered_set<int> -> not sorted, O(1) operations.
+  - Since we don't care about order in dedup_ (heaps handle ordering),
+    unordered_set is better.
+
+TL;DR
+  - dedup_ = tracks floors already scheduled.
+  - Use unordered_set because we just need fast existence checks, not sorted
+    order.
+  - Without dedup_, same floor could be added multiple times -> elevator stops
+    unnecessarily.
+
+If you want, I can make a small diagram showing how dedup_ works with upStops_
+and downStops_ —it makes the idea very visual.
