@@ -1,0 +1,619 @@
+# Elevator System - Edge Cases
+
+1. **Elevator already at request floor**  
+   - Idle → open immediately  
+   - Moving opposite → open or skip?  
+
+2. **Multiple requests for same floor**  
+   - Hall Up + Hall Down + Car call → deduplicate stops  
+
+3. **Conflicting inside vs outside calls**  
+   - Inside wants Up, outside at same floor wants Down  
+
+4. **Boundary floors**  
+   - Calls at lowest (no Down) or highest (no Up) floor  
+
+5. **Simultaneous requests**  
+   - Two hall calls at same time → tie-breaking  
+
+6. **Overload case**  
+   - Elevator full → skip further pickups  
+
+7. **Idle placement**  
+   - Should idle cars stay or park at ground/default floor?  
+
+8. **Tie-breaking between cars**  
+   - Two equally good candidates → how to decide?  
+
+9. **Repeated button presses**  
+   - Prevent duplicate requests flooding the system  
+
+10. **Door timing**  
+    - Call pressed while doors closing → reopen or not?  
+
+**Top 3 to always mention in interviews:**  
+- Elevator already at request floor  
+- Multiple/duplicate requests  
+- Direction conflicts (inside vs outside)
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+//easy Code
+
+enum class Direction { Down = -1, Idle = 0, Up = 1 };
+enum class DoorState { Closed, Opening, Open, Closing };
+enum class CarState  { Stopped, Moving };
+
+struct HallCall {
+    int floor;
+    Direction dir; // user's intended direction
+};
+
+struct CarCall {
+    int floor;
+};
+
+// ---------- ElevatorCar ----------
+class ElevatorCar {
+    int id_;
+    int minFloor_;
+    int maxFloor_;
+    int currentFloor_ = 0;
+    Direction dir_ = Direction::Idle;
+    DoorState door_ = DoorState::Closed;
+    CarState state_ = CarState::Stopped;
+
+    // upStops: min-heap, downStops: max-heap
+    priority_queue<int, vector<int>, std::greater<int>> upStops_;
+    priority_queue<int> downStops_;
+    unordered_set<int> dedup_; // avoid duplicates in both heaps
+
+    // helpers
+    bool hasAnyStops() const {
+        return !upStops_.empty() || !downStops_.empty();
+    }
+
+    int peekNextStop() const {
+        if (dir_ == Direction::Up) {
+            if (!upStops_.empty()) return upStops_.top();
+            if (!downStops_.empty()) return downStops_.top();
+        } else if (dir_ == Direction::Down) {
+            if (!downStops_.empty()) return downStops_.top();
+            if (!upStops_.empty()) return upStops_.top();
+        } else { // Idle
+            // choose nearest among both
+            int best = INT_MAX, bestDist = INT_MAX;
+            if (!upStops_.empty()) {
+                int f = upStops_.top();
+                int dist = abs(f - currentFloor_);
+                if (dist < bestDist) { bestDist = dist; best = f; }
+            }
+            if (!downStops_.empty()) {
+                int f = downStops_.top();
+                int dist = abs(f - currentFloor_);
+                if (dist < bestDist) { bestDist = dist; best = f; }
+            }
+            return (best == INT_MAX) ? currentFloor_ : best;
+        }
+        // if we got here, just pick anything available
+        if (!upStops_.empty()) return upStops_.top();
+        if (!downStops_.empty()) return downStops_.top();
+        return currentFloor_;
+    }
+
+    void popCurrentStopIfMatched(int floor) {
+        if (!upStops_.empty() && upStops_.top() == floor) {
+            dedup_.erase(floor);
+            upStops_.pop();
+        } else if (!downStops_.empty() && downStops_.top() == floor) {
+            dedup_.erase(floor);
+            downStops_.pop();
+        }
+    }
+
+    void maybeSwitchDirection() {
+        if (dir_ == Direction::Up && upStops_.empty() && !downStops_.empty()) {
+            dir_ = Direction::Down;
+        } else if (dir_ == Direction::Down && downStops_.empty() && !upStops_.empty()) {
+            dir_ = Direction::Up;
+        } else if (!hasAnyStops()) {
+            dir_ = Direction::Idle;
+        }
+    }
+
+public:
+    ElevatorCar(int id, int minFloor, int maxFloor, int startFloor = 0)
+        : id_(id), minFloor_(minFloor), maxFloor_(maxFloor), currentFloor_(startFloor) {}
+
+    int id() const { return id_; }
+    int currentFloor() const { return currentFloor_; }
+    Direction direction() const { return dir_; }
+    DoorState doorState() const { return door_; }
+    bool hasWork() const { return hasAnyStops() || doorTimer_ > 0 || state_ == CarState::Moving; }
+
+    // Add a stop (from hall or car).
+    bool addStop(int floor) {
+        if (floor < minFloor_ || floor > maxFloor_) return false;
+        if (dedup_.count(floor)) return true;
+        dedup_.insert(floor);
+        if (floor > currentFloor_) upStops_.push(floor);
+        else if (floor < currentFloor_) downStops_.push(floor);
+        else {
+            // already here -> open doors immediately
+            upStops_.push(floor); // place somewhere to service now
+        }
+        // if idle, set initial direction
+        if (dir_ == Direction::Idle) {
+            if (floor > currentFloor_) dir_ = Direction::Up;
+            else if (floor < currentFloor_) dir_ = Direction::Down;
+            else dir_ = Direction::Idle;
+        }
+        return true;
+    }
+
+    // One time-step of simulation.
+    void step(int tick) {
+        if (door_ == DoorState::Open) {     
+            door_ = DoorState::Closing;
+            return;
+        }
+        if (door_ == DoorState::Closing) {
+            door_ = DoorState::Closed;
+        }
+        if (!hasAnyStops()) {
+            state_ = CarState::Stopped;
+            dir_ = Direction::Idle;
+            return;
+        }
+        int target = peekNextStop();
+        // If already at target floor -> open doors
+        if (currentFloor_ == target) {
+            popCurrentStopIfMatched(target);
+            state_ = CarState::Stopped;
+            door_ = DoorState::Opening;
+            door_ = DoorState::Open;
+            maybeSwitchDirection();
+            return;
+        }
+        // Decide direction towards target
+        dir_ = (target > currentFloor_) ? Direction::Up : Direction::Down;
+        state_ = CarState::Moving;
+
+        // Move one floor
+        int prev = currentFloor_;
+        currentFloor_ += (dir_ == Direction::Up ? 1 : -1);
+  
+        // If we just reached a queued stop exactly, next tick will open doors
+        if (currentFloor_ == peekNextStop()) {
+            // no-op; opening handled next tick
+        }
+    }
+};
+
+// ---------- Scheduling Strategy (Hall-call assignment) ----------
+class SchedulingStrategy {
+public:
+    virtual ~SchedulingStrategy() = default;
+    virtual int chooseCar(const vector<shared_ptr<ElevatorCar>>& cars, const HallCall& call) = 0;
+};
+
+// Nearest eligible car: prefer cars moving toward the call, else nearest idle, else global nearest.
+class NearestEligibleStrategy : public SchedulingStrategy {
+public:
+    int chooseCar(const vector<shared_ptr<ElevatorCar>>& cars, const HallCall& call) override {
+        int bestId = -1;
+        int bestScore = INT_MAX;
+
+        for (auto& car : cars) {
+            int score = computeScore(car, call);
+
+            if (score < bestScore) {
+                bestScore = score;
+                bestId = car->id();
+            }
+        }
+        return bestId;
+    }
+
+private:
+    // Compute "goodness score" of assigning this car to the hall call
+    int computeScore(const shared_ptr<ElevatorCar>& car, const HallCall& call) {
+        int dist = abs(car->currentFloor() - call.floor);
+        bool toward = false;
+        if (car->direction() == Direction::Up &&
+            call.floor >= car->currentFloor() &&
+            call.dir == Direction::Up) {
+            toward = true;
+        }
+        else if (car->direction() == Direction::Down &&
+                 call.floor <= car->currentFloor() &&
+                 call.dir == Direction::Down) {
+            toward = true;
+        }
+        else if (car->direction() == Direction::Idle) {
+            toward = true; // idle cars are always good candidates
+        }
+
+        // Lower score is better
+        // Multiply distance by 10, add small penalty if not ideal
+        if (toward) return dist * 10;
+        else return dist * 10 + 5;
+        //Tie-breaking is simplistic.
+        //If the car is at your floor but about to move the wrong way, you might have to wait for another car.
+        //Doesn’t optimize for fair load balancing among multiple cars.
+    }
+};
+
+// ---------- ElevatorSystem ----------
+class ElevatorSystem {
+    int minFloor_, maxFloor_;
+    vector<shared_ptr<ElevatorCar>> cars_;
+    unique_ptr<SchedulingStrategy> strategy_;
+
+public:
+    ElevatorSystem(int minFloor, int maxFloor, int numCars, int startFloor = 0,
+                   unique_ptr<SchedulingStrategy> strategy = make_unique<NearestEligibleStrategy>())
+        : minFloor_(minFloor), maxFloor_(maxFloor), strategy_(std::move(strategy))
+    {
+        for (int i = 0; i < numCars; ++i)
+            cars_.push_back(make_shared<ElevatorCar>(i, minFloor_, maxFloor_, startFloor));
+    }
+
+    const vector<shared_ptr<ElevatorCar>>& cars() const { return cars_; }
+
+    // Hall panel press outside the car
+    bool handleHallCall(int floor, Direction dir) {
+        if (floor < minFloor_ || floor > maxFloor_) return false;
+        HallCall call{floor, dir};
+        int carId = strategy_->chooseCar(cars_, call);
+        if (carId < 0) return false;
+        return cars_[carId]->addStop(floor);
+    }
+
+    // Inside a car
+    bool handleCarCall(int carId, int floor) {
+        if (carId < 0 || carId >= (int)cars_.size()) return false;
+        return cars_[carId]->addStop(floor);
+    }
+
+    // Progress one tick for all cars
+    void step(int tick) {
+        for (auto& c : cars_) c->step(tick);
+    }
+
+    // Simple logger dump
+    void flushLogsAndPrint() {
+        for (auto& c : cars_) {
+            for (auto& e : c->emitted) {
+                cout << "[t=" << e.tick << "] Car#" << e.carId << " - " << e.msg << "\n";
+            }
+            c->emitted.clear();
+        }
+    }
+};
+
+// ---------- Demo ----------
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    // Building with floors 0..15, 3 cars starting at floor 0
+    ElevatorSystem system(0, 15, 3, 0);
+
+    // Requests
+    system.handleHallCall(7, Direction::Up);   // someone at 7 going up
+    system.handleHallCall(3, Direction::Down); // someone at 3 going down
+    system.handleCarCall(0, 12);               // passenger in car#0 pressed 12
+    system.handleHallCall(14, Direction::Down);
+    system.handleHallCall(1, Direction::Up);
+
+    // Simulate 40 ticks
+    for (int t = 1; t <= 40; ++t) {
+        system.step(t);
+        system.flushLogsAndPrint();
+    }
+
+    return 0;
+}
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+//Hard Version of code with time tick
+
+#include <bits/stdc++.h>
+using namespace std;
+
+// ---------- Basic Types ----------
+enum class Direction { Down = -1, Idle = 0, Up = 1 };
+enum class DoorState { Closed, Opening, Open, Closing };
+enum class CarState  { Stopped, Moving };
+
+static string dirToStr(Direction d) {
+    if (d == Direction::Up) return "Up";
+    if (d == Direction::Down) return "Down";
+    return "Idle";
+}
+
+// ---------- Requests ----------
+struct HallCall {
+    int floor;
+    Direction dir; // user's intended direction
+};
+
+struct CarCall {
+    int floor;
+};
+
+// ---------- ElevatorCar ----------
+class ElevatorCar {
+public:
+    struct Event {
+        int tick;
+        int carId;
+        string msg;
+    };
+
+private:
+    int id_;
+    int minFloor_;
+    int maxFloor_;
+    int currentFloor_ = 0;
+    Direction dir_ = Direction::Idle;
+    DoorState door_ = DoorState::Closed;
+    CarState state_ = CarState::Stopped;
+    int doorTimer_ = 0; // ticks to remain open
+
+    // upStops: min-heap, downStops: max-heap
+    priority_queue<int, vector<int>, std::greater<int>> upStops_;
+    priority_queue<int> downStops_;
+    unordered_set<int> dedup_; // avoid duplicates in both heaps
+
+    // helpers
+    bool hasAnyStops() const {
+        return !upStops_.empty() || !downStops_.empty();
+    }
+
+    int peekNextStop() const {
+        if (dir_ == Direction::Up) {
+            if (!upStops_.empty()) return upStops_.top();
+            if (!downStops_.empty()) return downStops_.top();
+        } else if (dir_ == Direction::Down) {
+            if (!downStops_.empty()) return downStops_.top();
+            if (!upStops_.empty()) return upStops_.top();
+        } else { // Idle
+            // choose nearest among both
+            int best = INT_MAX, bestDist = INT_MAX;
+            if (!upStops_.empty()) {
+                int f = upStops_.top();
+                int dist = abs(f - currentFloor_);
+                if (dist < bestDist) { bestDist = dist; best = f; }
+            }
+            if (!downStops_.empty()) {
+                int f = downStops_.top();
+                int dist = abs(f - currentFloor_);
+                if (dist < bestDist) { bestDist = dist; best = f; }
+            }
+            return (best == INT_MAX) ? currentFloor_ : best;
+        }
+        // if we got here, just pick anything available
+        if (!upStops_.empty()) return upStops_.top();
+        if (!downStops_.empty()) return downStops_.top();
+        return currentFloor_;
+    }
+
+    void popCurrentStopIfMatched(int floor) {
+        if (!upStops_.empty() && upStops_.top() == floor) {
+            dedup_.erase(floor);
+            upStops_.pop();
+        } else if (!downStops_.empty() && downStops_.top() == floor) {
+            dedup_.erase(floor);
+            downStops_.pop();
+        }
+    }
+
+    void maybeSwitchDirection() {
+        if (dir_ == Direction::Up && upStops_.empty() && !downStops_.empty()) {
+            dir_ = Direction::Down;
+        } else if (dir_ == Direction::Down && downStops_.empty() && !upStops_.empty()) {
+            dir_ = Direction::Up;
+        } else if (!hasAnyStops()) {
+            dir_ = Direction::Idle;
+        }
+    }
+
+public:
+    vector<Event> emitted; // simple logger
+
+    ElevatorCar(int id, int minFloor, int maxFloor, int startFloor = 0)
+        : id_(id), minFloor_(minFloor), maxFloor_(maxFloor), currentFloor_(startFloor) {}
+
+    int id() const { return id_; }
+    int currentFloor() const { return currentFloor_; }
+    Direction direction() const { return dir_; }
+    DoorState doorState() const { return door_; }
+    bool hasWork() const { return hasAnyStops() || doorTimer_ > 0 || state_ == CarState::Moving; }
+
+    // Add a stop (from hall or car).
+    bool addStop(int floor) {
+        if (floor < minFloor_ || floor > maxFloor_) return false;
+        if (dedup_.count(floor)) return true;
+        dedup_.insert(floor);
+        if (floor > currentFloor_) upStops_.push(floor);
+        else if (floor < currentFloor_) downStops_.push(floor);
+        else {
+            // already here -> open doors immediately
+            upStops_.push(floor); // place somewhere to service now
+        }
+        // if idle, set initial direction
+        if (dir_ == Direction::Idle) {
+            if (floor > currentFloor_) dir_ = Direction::Up;
+            else if (floor < currentFloor_) dir_ = Direction::Down;
+            else dir_ = Direction::Idle;
+        }
+        return true;
+    }
+
+    // One time-step of simulation.
+    void step(int tick) {
+        // Handle door dwell
+        if (door_ == DoorState::Open) {
+            if (doorTimer_ > 0) {
+                --doorTimer_;
+                if (doorTimer_ == 0) {
+                    door_ = DoorState::Closing;
+                    emitted.push_back({tick, id_, "Door Closing"});
+                }
+            }
+            return;
+        }
+        if (door_ == DoorState::Closing) {
+            door_ = DoorState::Closed;
+            emitted.push_back({tick, id_, "Door Closed"});
+        }
+
+        if (!hasAnyStops()) {
+            state_ = CarState::Stopped;
+            dir_ = Direction::Idle;
+            return;
+        }
+
+        int target = peekNextStop();
+
+        // If already at target floor -> open doors
+        if (currentFloor_ == target) {
+            popCurrentStopIfMatched(target);
+            state_ = CarState::Stopped;
+            door_ = DoorState::Opening;
+            emitted.push_back({tick, id_, "Door Opening at floor " + to_string(currentFloor_)});
+            // complete open immediately & dwell
+            door_ = DoorState::Open;
+            emitted.push_back({tick, id_, "Door Open"});
+            doorTimer_ = 2; // dwell time
+            maybeSwitchDirection();
+            return;
+        }
+
+        // Decide direction towards target
+        dir_ = (target > currentFloor_) ? Direction::Up : Direction::Down;
+        state_ = CarState::Moving;
+
+        // Move one floor
+        int prev = currentFloor_;
+        currentFloor_ += (dir_ == Direction::Up ? 1 : -1);
+        emitted.push_back({tick, id_, "Moved from " + to_string(prev) + " to " + to_string(currentFloor_) + " (" + dirToStr(dir_) + ")"});
+
+        // If we just reached a queued stop exactly, next tick will open doors
+        if (currentFloor_ == peekNextStop()) {
+            // no-op; opening handled next tick
+        }
+    }
+};
+
+// ---------- Scheduling Strategy (Hall-call assignment) ----------
+class SchedulingStrategy {
+public:
+    virtual ~SchedulingStrategy() = default;
+    virtual int chooseCar(const vector<shared_ptr<ElevatorCar>>& cars, const HallCall& call) = 0;
+};
+
+// Nearest eligible car: prefer cars moving toward the call, else nearest idle, else global nearest.
+class NearestEligibleStrategy : public SchedulingStrategy {
+public:
+    int chooseCar(const vector<shared_ptr<ElevatorCar>>& cars, const HallCall& call) override {
+        int bestId = -1;
+        int bestScore = INT_MAX;
+
+        auto score = [&](const shared_ptr<ElevatorCar>& c)->int{
+            int dist = abs(c->currentFloor() - call.floor);
+            // eligibility bonus: car moving toward the call and will pass the floor
+            bool toward = false;
+            if (c->direction() == Direction::Up && call.floor >= c->currentFloor() && call.dir == Direction::Up) toward = true;
+            if (c->direction() == Direction::Down && call.floor <= c->currentFloor() && call.dir == Direction::Down) toward = true;
+            if (c->direction() == Direction::Idle) toward = true; // prefer idle
+            // lower is better; subtract small bias when ideal
+            return dist * 10 + (toward ? 0 : 5);
+        };
+
+        for (auto& c : cars) {
+            int s = score(c);
+            if (s < bestScore) {
+                bestScore = s;
+                bestId = c->id();
+            }
+        }
+        return bestId;
+    }
+};
+
+// ---------- ElevatorSystem ----------
+class ElevatorSystem {
+    int minFloor_, maxFloor_;
+    vector<shared_ptr<ElevatorCar>> cars_;
+    unique_ptr<SchedulingStrategy> strategy_;
+
+public:
+    ElevatorSystem(int minFloor, int maxFloor, int numCars, int startFloor = 0,
+                   unique_ptr<SchedulingStrategy> strategy = make_unique<NearestEligibleStrategy>())
+        : minFloor_(minFloor), maxFloor_(maxFloor), strategy_(std::move(strategy))
+    {
+        for (int i = 0; i < numCars; ++i)
+            cars_.push_back(make_shared<ElevatorCar>(i, minFloor_, maxFloor_, startFloor));
+    }
+
+    const vector<shared_ptr<ElevatorCar>>& cars() const { return cars_; }
+
+    // Hall panel press outside the car
+    bool handleHallCall(int floor, Direction dir) {
+        if (floor < minFloor_ || floor > maxFloor_) return false;
+        HallCall call{floor, dir};
+        int carId = strategy_->chooseCar(cars_, call);
+        if (carId < 0) return false;
+        return cars_[carId]->addStop(floor);
+    }
+
+    // Inside a car
+    bool handleCarCall(int carId, int floor) {
+        if (carId < 0 || carId >= (int)cars_.size()) return false;
+        return cars_[carId]->addStop(floor);
+    }
+
+    // Progress one tick for all cars
+    void step(int tick) {
+        for (auto& c : cars_) c->step(tick);
+    }
+
+    // Simple logger dump
+    void flushLogsAndPrint() {
+        for (auto& c : cars_) {
+            for (auto& e : c->emitted) {
+                cout << "[t=" << e.tick << "] Car#" << e.carId << " - " << e.msg << "\n";
+            }
+            c->emitted.clear();
+        }
+    }
+};
+
+// ---------- Demo ----------
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    // Building with floors 0..15, 3 cars starting at floor 0
+    ElevatorSystem system(0, 15, 3, 0);
+
+    // Requests
+    system.handleHallCall(7, Direction::Up);   // someone at 7 going up
+    system.handleHallCall(3, Direction::Down); // someone at 3 going down
+    system.handleCarCall(0, 12);               // passenger in car#0 pressed 12
+    system.handleHallCall(14, Direction::Down);
+    system.handleHallCall(1, Direction::Up);
+
+    // Simulate 40 ticks
+    for (int t = 1; t <= 40; ++t) {
+        system.step(t);
+        system.flushLogsAndPrint();
+    }
+
+    return 0;
+}
