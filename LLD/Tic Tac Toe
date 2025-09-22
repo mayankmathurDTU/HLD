@@ -1,0 +1,246 @@
+# Tic-Tac-Toe Game LLD
+
+## Requirements
+
+### Functional Requirements (FR)
+- Multiple players (more than 2) can participate.  
+- Each player can choose a unique symbol/piece.  
+- Board size is dynamic: NxM.  
+- Players take turns placing their symbols.  
+- Check for a winner (row, column, diagonal) or a draw.  
+- Show the board after each move.  
+- Allow restarting or ending the game.  
+
+### Non-Functional Requirements (NFR)
+- Code should be modular and maintainable.  
+- Game should efficiently handle large boards.  
+- Flexible to add features like score tracking later.  
+- Responsive and interactive CLI.  
+
+---
+
+## Core Entities
+
+### GameBoard
+- Represents the board (NxM grid)  
+- Stores pieces at positions  
+- Checks winning conditions  
+
+### Player
+- Has a unique ID and a symbol/piece  
+- May have a name  
+
+### Game
+- Manages players, turns, and board  
+- Controls game loop  
+- Determines winner or draw  
+
+### Move (optional)
+- Represents a move by a player (row, column, player)  
+
+---
+
+## Design Patterns to Use
+
+- **Strategy Pattern**: Implement different win-checking strategies dynamically depending on board size (row, column, diagonal).  
+- **Singleton Pattern (optional)**: For a single shared board instance (not strictly needed for simple CLI).  
+- **Factory Pattern (optional)**: To create players or pieces dynamically if extending the game.  
+
+---
+
+## Classes & Roles
+
+| Class      | Role                                                                 |
+|------------|----------------------------------------------------------------------|
+| Player     | Represents a player with symbol and name.                            |
+| GameBoard  | Stores board cells, prints board, validates moves, checks win/draw.  |
+| Game       | Main controller, keeps players, alternates turns, starts game loop. |
+| Move       | Optional helper class to represent a move.                           |
+
+---
+
+## Algorithm / Flow
+
+1. Initialize the board with given NxM size.  
+2. Create n players and assign unique symbols.  
+3. Start a loop:  
+   - Display board  
+   - Ask current player for move  
+   - Validate move  
+   - Place symbol  
+   - Check for win:  
+     - Check row, column, and diagonals  
+     - If no moves left → draw  
+   - Switch to next player  
+4. End loop when winner found or draw.  
+
+### Winning Condition Logic
+For each move `(i,j)`, check:  
+- **Row**: all same symbol in that row  
+- **Column**: all same symbol in that column  
+- **Diagonals**: main diagonal and anti-diagonal (only if board is square or the move is on a diagonal)  
+
+
+
+#include <iostream>
+#include <vector>
+using namespace std;
+
+// Player class
+class Player {
+public:
+    string name;
+    char symbol;
+    Player(string n, char s) {
+        name = n;
+        symbol = s;
+    }
+};
+
+// GameBoard class
+class GameBoard {
+private:
+    int rows, cols;
+    vector<vector<char>> board;
+
+public:
+    GameBoard(int r, int c) {
+        rows = r;
+        cols = c;
+        board.resize(rows, vector<char>(cols, ' '));
+    }
+
+    void display() {
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
+                cout << board[i][j];
+                if (j != cols - 1) cout << " | ";
+            }
+            cout << endl;
+            if (i != rows - 1) {
+                for (int k = 0; k < cols; k++) {
+                    cout << "--";
+                    if (k != cols - 1) cout << "+";
+                }
+                cout << endl;
+            }
+        }
+    }
+
+    bool placeMove(int r, int c, char symbol) {
+        if (r < 0 || r >= rows || c < 0 || c >= cols || board[r][c] != ' ') return false;
+        board[r][c] = symbol;
+        return true;
+    }
+
+    bool checkWin(char symbol) {
+        // Check rows
+        for (int i = 0; i < rows; i++) {
+            bool win = true;
+            for (int j = 0; j < cols; j++) {
+                if (board[i][j] != symbol) { win = false; break; }
+            }
+            if (win) return true;
+        }
+
+        // Check columns
+        for (int j = 0; j < cols; j++) {
+            bool win = true;
+            for (int i = 0; i < rows; i++) {
+                if (board[i][j] != symbol) { win = false; break; }
+            }
+            if (win) return true;
+        }
+
+        // Check main diagonal (only if square)
+        if (rows == cols) {
+            bool win = true;
+            for (int i = 0; i < rows; i++) {
+                if (board[i][i] != symbol) { win = false; break; }
+            }
+            if (win) return true;
+
+            // Anti-diagonal
+            win = true;
+            for (int i = 0; i < rows; i++) {
+                if (board[i][cols - i - 1] != symbol) { win = false; break; }
+            }
+            if (win) return true;
+        }
+
+        return false;
+    }
+
+    bool isFull() {
+        for (int i = 0; i < rows; i++)
+            for (int j = 0; j < cols; j++)
+                if (board[i][j] == ' ') return false;
+        return true;
+    }
+};
+
+// Game class
+class Game {
+private:
+    GameBoard board;
+    vector<Player> players;
+    int currentPlayer;
+
+public:
+    Game(int r, int c, vector<Player> p) : board(r, c) {
+        players = p;
+        currentPlayer = 0;
+    }
+
+    void start() {
+        while (true) {
+            board.display();
+            Player p = players[currentPlayer];
+            int r, c;
+            cout << p.name << "'s turn (" << p.symbol << "). Enter row and column: ";
+            cin >> r >> c;
+            if (!board.placeMove(r, c, p.symbol)) {
+                cout << "Invalid move. Try again." << endl;
+                continue;
+            }
+
+            if (board.checkWin(p.symbol)) {
+                board.display();
+                cout << p.name << " wins!" << endl;
+                break;
+            }
+
+            if (board.isFull()) {
+                board.display();
+                cout << "Game is a draw!" << endl;
+                break;
+            }
+
+            currentPlayer = (currentPlayer + 1) % players.size();
+        }
+    }
+};
+
+// Main function
+int main() {
+    int rows, cols, numPlayers;
+    cout << "Enter board size (rows cols): ";
+    cin >> rows >> cols;
+
+    cout << "Enter number of players: ";
+    cin >> numPlayers;
+
+    vector<Player> players;
+    for (int i = 0; i < numPlayers; i++) {
+        string name;
+        char symbol;
+        cout << "Enter name and symbol for player " << i+1 << ": ";
+        cin >> name >> symbol;
+        players.push_back(Player(name, symbol));
+    }
+
+    Game game(rows, cols, players);
+    game.start();
+
+    return 0;
+}
