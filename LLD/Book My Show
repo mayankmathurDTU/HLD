@@ -1,0 +1,698 @@
+How to mamage concurrecny : 
+2 users -> 1 and 2 : both should not be able to book same seat
+If user1 selects a seat -> it should remained locked for 10 mins;
+
+concurrency handled in 2 ways 
+1. Pesimistic : whenever you read something: lock it. bad for out system
+2. Optimistic : allows multiple users to read. Uses versioning : seat has a version. u1 and u2 came. both got version1 of seat. u1 went to update seat.
+    first checks if its version of seat is same as current version of seat which is version1. if not reload. maybe seat got locked. 
+    if version still version1 -> proceed with updating and make seats version now as version2. so if others users proceed with update-> 
+      theyf find verison mismatch and reload page. 
+  Optimistic lock is better for Book My Show. we will maintain version of rows of seates. 
+  For locking for 10 minutes, we can use redis with TTL.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Movie Ticket Booking System (LLD)
+
+## Flow
+1. User enters location  
+2. Movies in that city are shown  
+3. User selects a movie → available shows (e.g., Show 1 at this time, Show 2 at that time)  
+4. User chooses seat(s)  
+5. User proceeds to payment  
+
+---
+
+## Objects
+- User  
+- Movie  
+- City  
+- Theatre (can have multiple screens/halls)  
+- Show  
+- Booking  
+- Payment  
+
+---
+
+## Movie
+- Strongly tied with city → any movie app asks for city first (movies shown are city-specific).  
+
+Movie Object  
+- movieId  
+- movieName  
+- movieDuration  
+
+MovieController  
+- Map<City, List<Movie>>  
+- List of all movies  
+- Handles all CRUD operations for movies  
+- Has reference to Movie  
+
+---
+
+## Theatre
+Theatre Object  
+- theatreId  
+- address  
+- city  
+- List<Screen> (1 theatre can have multiple screens/halls)  
+- List<Show>  
+
+TheatreController  
+- Map<City, List<Theatre>>  
+- List of all theatres in system  
+
+---
+
+## Screen
+Screen Object  
+- screenId  
+- List<Seat>  
+
+Notes:  
+- Theatre has multiple screens  
+- Each screen can host multiple shows at different times  
+
+---
+
+## Show
+Show Object  
+- showId  
+- Movie (which movie is playing)  
+- Screen (which screen it is being played in)  
+- startTime  
+- List<bookedSeatIds>  
+
+Notes:  
+- Booking of seats is tracked inside Show  
+
+---
+
+## Seat
+Seat Object  
+- seatId  
+- rowInfo  
+- seatCategory (Silver / Gold / Platinum)  
+
+Notes:  
+- Belongs to a Screen  
+- Booked status tracked inside Show  
+
+---
+
+## Booking
+Booking Object  
+- Has Show  
+- List<Seat> user wants to book  
+- paymentInfo  
+
+---
+
+## Driver Method -> // Driver method to simulate "Book My Show"
+
+
+
+----------------------------------------------------------------------------------------------
+# Relationships
+- A City has many Theatres  
+- A Theatre has many Screens  
+- A Screen has many Seats  
+- A Screen hosts many Shows at different times  
+- A Show is linked with one Movie  
+- A Booking is linked with one Show and multiple Seats  
+
+----------------------------------------------------------------------------------------------
+Classes & Their Roles
+User - stores user details.
+Movie - stores movie information.
+MovieController - manages movies (CRUD operations, maps city to movies).
+Theatre - stores theatre information, contains screens.
+Screen - contains seats.
+Seat - has row and category information.
+Show - represents a movie running in a screen at a specific time, tracks booked seats.
+TheatreController - manages theatres city-wise.
+Booking - holds show, selected seats, and payment information.
+Payment - stores payment details.
+Driver (main) - simulates user journey.
+----------------------------------------------------------------------------------------------  
+#include <iostream>
+#include <vector>
+#include <map>
+#include <string>
+using namespace std;
+
+// ----------------- Entity Classes -----------------
+
+// User class -> represents a user
+class User {
+public:
+    string userId;   // unique user id
+    string name;     // name of the user
+
+    User(string id, string n) {
+        userId = id;
+        name = n;
+    }
+};
+
+// Seat class -> represents a single seat
+class Seat {
+public:
+    int seatId;          // unique seat id
+    int rowInfo;         // row number
+    string category;     // category like Silver/Gold/Platinum
+
+    Seat(int id, int row, string cat) {
+        seatId = id;
+        rowInfo = row;
+        category = cat;
+    }
+};
+
+// Movie class -> represents a movie
+class Movie {
+public:
+    int movieId;       // unique id of movie
+    string name;       // name of movie
+    int duration;      // duration in minutes
+
+    Movie(int id, string n, int d) {
+        movieId = id;
+        name = n;
+        duration = d;
+    }
+};
+
+// Screen class -> represents a hall in theatre
+class Screen {
+public:
+    int screenId;                 // unique screen id
+    vector<Seat> seats;           // list of seats in this screen
+
+    Screen(int id) {
+        screenId = id;
+    }
+
+    // method to add seat
+    void addSeat(Seat s) {
+        seats.push_back(s);
+    }
+};
+
+// Show class -> represents one show of a movie
+class Show {
+public:
+    int showId;                         // unique show id
+    Movie movie;                        // which movie is running
+    Screen screen;                      // which screen
+    string startTime;                   // show time
+    vector<int> bookedSeats;            // list of booked seat ids
+
+    Show(int id, Movie m, Screen s, string time) : movie(m), screen(s) {
+        showId = id;
+        startTime = time;
+    }
+
+    // method to check if a seat is booked
+    bool isSeatBooked(int seatId) {
+        for (int s : bookedSeats) {
+            if (s == seatId) return true;
+        }
+        return false;
+    }
+
+    // method to book a seat
+    bool bookSeat(int seatId) {
+        if (!isSeatBooked(seatId)) {
+            bookedSeats.push_back(seatId);
+            return true;
+        }
+        return false;
+    }
+};
+
+// Theatre class -> represents a theatre
+class Theatre {
+public:
+    int theatreId;                      // unique theatre id
+    string address;                      // address
+    string city;                         // city of theatre
+    vector<Screen> screens;              // screens in theatre
+    vector<Show> shows;                  // shows in theatre
+
+    Theatre(int id, string addr, string c) {
+        theatreId = id;
+        address = addr;
+        city = c;
+    }
+
+    void addScreen(Screen s) {
+        screens.push_back(s);
+    }
+
+    void addShow(Show sh) {
+        shows.push_back(sh);
+    }
+};
+
+// Booking class -> represents a booking
+class Booking {
+public:
+    Show show;                     // which show booked
+    vector<int> seatsBooked;       // seat ids booked
+    string paymentInfo;            // dummy payment info
+
+    Booking(Show sh, vector<int> seats, string pay) : show(sh) {
+        seatsBooked = seats;
+        paymentInfo = pay;
+    }
+
+    void printBooking() {
+        cout << "Booking Confirmed for Movie: " << show.movie.name << endl;
+        cout << "Show Time: " << show.startTime << endl;
+        cout << "Seats: ";
+        for (int s : seatsBooked) cout << s << " ";
+        cout << endl;
+        cout << "Payment Info: " << paymentInfo << endl;
+    }
+};
+
+// ----------------- Controller Classes -----------------
+
+// MovieController -> manages movies city wise
+class MovieController {
+public:
+    map<string, vector<Movie>> cityMovieMap;   // city -> movies
+    vector<Movie> allMovies;                   // all movies in system
+
+    // add movie to a city
+    void addMovie(string city, Movie m) {
+        cityMovieMap[city].push_back(m);
+        allMovies.push_back(m);
+    }
+
+    // get movies in a city
+    vector<Movie> getMoviesByCity(string city) {
+        return cityMovieMap[city];
+    }
+};
+
+// TheatreController -> manages theatres city wise
+class TheatreController {
+public:
+    map<string, vector<Theatre>> cityTheatreMap;   // city -> theatres
+    vector<Theatre> allTheatres;
+
+    // add theatre
+    void addTheatre(string city, Theatre t) {
+        cityTheatreMap[city].push_back(t);
+        allTheatres.push_back(t);
+    }
+
+    // get theatres in a city
+    vector<Theatre> getTheatresByCity(string city) {
+        return cityTheatreMap[city];
+    }
+};
+
+// ----------------- Driver Method -----------------
+int main() {
+    // create controllers
+    MovieController movieController;
+    TheatreController theatreController;
+
+    // create movies
+    Movie m1(1, "Inception", 150);
+    Movie m2(2, "Interstellar", 180);
+
+    // add movies to city
+    movieController.addMovie("Delhi", m1);
+    movieController.addMovie("Delhi", m2);
+
+    // create theatre
+    Theatre t1(101, "Connaught Place", "Delhi");
+
+    // create screen
+    Screen sc1(201);
+    sc1.addSeat(Seat(1, 1, "Gold"));
+    sc1.addSeat(Seat(2, 1, "Gold"));
+
+    // add screen to theatre
+    t1.addScreen(sc1);
+
+    // create show
+    Show sh1(301, m1, sc1, "7:00 PM");
+    t1.addShow(sh1);
+
+    // add theatre to city
+    theatreController.addTheatre("Delhi", t1);
+
+    // user selects city
+    string city = "Delhi";
+    cout << "Movies in " << city << ":" << endl;
+    vector<Movie> movies = movieController.getMoviesByCity(city);
+    for (Movie m : movies) {
+        cout << m.movieId << " - " << m.name << endl;
+    }
+
+    // user chooses movie -> Inception (m1)
+    cout << "Shows for " << m1.name << ":" << endl;
+    for (Show s : t1.shows) {
+        if (s.movie.movieId == m1.movieId) {
+            cout << "ShowId: " << s.showId << " Time: " << s.startTime << endl;
+        }
+    }
+
+    // user chooses show and seat
+    int chosenSeat = 1;
+    if (t1.shows[0].bookSeat(chosenSeat)) {
+        Booking b1(t1.shows[0], {chosenSeat}, "Paid by Card");
+        b1.printBooking();
+    } else {
+        cout << "Seat already booked!" << endl;
+    }
+
+    return 0;
+}
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+User tells city → Driver prints movies in that city.
+User picks movie → Driver prints shows of that movie in that city.
+User picks show → Driver prints available seats (locked seats that expired are auto-released).
+User picks a seat → The seat is locked (timestamp saved) for 10 minutes.
+If user confirms payment before lock expiry → Seat becomes BOOKED.
+If lock expires or user cancels → Seat becomes AVAILABLE again.
+Used enum class SeatState { AVAILABLE, LOCKED, BOOKED } as requested.
+Seat lock expiry is handled by checking timestamps on demand (no background thread or sleeping). This matches real systems (locks expire based on timestamps when checked).
+------------------------------------------------------------------------------------------------------------------------------------------
+
+#include <iostream>
+#include <vector>
+#include <map>
+#include <string>
+#include <chrono>
+#include <sstream>
+using namespace std;
+
+// ----------------- Seat state enum -----------------
+
+// Enum for seat states (available, locked, booked).
+// Used to represent per-show state of each seat.
+enum class SeatState { AVAILABLE, LOCKED, BOOKED };
+
+// ----------------- Entity Classes -----------------
+
+// Class representing a seat definition in a screen (id, row, category).
+// Holds static seat characteristics (not per-show state).
+class Seat {
+public:
+    // Unique seat identifier within a screen. Important to identify seats.
+    int seatId;
+
+    // Row information for the seat. Useful for display and grouping.
+    int rowInfo;
+
+    // Category of the seat (Silver/Gold/Platinum). Used for pricing and display.
+    string category;
+
+    // Constructor to initialize seat properties.
+    Seat(int id, int row, const string &cat) {
+        seatId = id;
+        rowInfo = row;
+        category = cat;
+    }
+};
+
+// Class representing a Show (a movie screening in a screen at a time).
+// Maintains per-seat state (AVAILABLE/LOCKED/BOOKED) and lock timestamps.
+class Show {
+public:
+    // Unique show identifier.
+    int showId;
+
+    // Movie that is played in this show (copy).
+    Movie movie;
+
+    // Screen where this show is held (copy). Contains seat definitions.
+    Screen screen;
+
+    // Start time string (e.g., "19:30").
+    string startTime;
+
+    // Map from seatId -> SeatState for this show (per-show seat availability).
+    map<int, SeatState> seatStates;
+
+    // Map from seatId -> lock timestamp when seat was locked.
+    // Used to determine lock expiry.
+    map<int, chrono::system_clock::time_point> lockTimestamps;
+
+    // Lock duration in minutes (10 as required).
+    static const int LOCK_DURATION_MINUTES = 10;
+
+    // Constructor to initialize show details and set all seats to AVAILABLE.
+    Show(int id = 0, const Movie &m = Movie(), const Screen &s = Screen(), const string &time = "") {
+        showId = id;
+        movie = m;
+        screen = s;
+        startTime = time;
+        // Initialize per-show seat states to AVAILABLE based on screen seat definitions.
+        for (size_t i = 0; i < screen.seats.size(); ++i) {
+            int sid = screen.seats[i].seatId;
+            seatStates[sid] = SeatState::AVAILABLE;
+        }
+    }
+
+    // Method to refresh (expire) locks that are older than LOCK_DURATION_MINUTES.
+    // Called at each state-sensitive operation to ensure correctness without background threads.
+    void refreshLocks() {
+        vector<int> toRelease;
+        chrono::system_clock::time_point now = chrono::system_clock::now();
+        for (map<int, SeatState>::iterator it = seatStates.begin(); it != seatStates.end(); ++it) {
+            int sid = it->first;
+            SeatState st = it->second;
+            if (st == SeatState::LOCKED) {
+                map<int, chrono::system_clock::time_point>::iterator ltIt = lockTimestamps.find(sid);
+                if (ltIt != lockTimestamps.end()) {
+                    chrono::duration<double> elapsed = now - ltIt->second;
+                    long elapsedMinutes = chrono::duration_cast<chrono::minutes>(elapsed).count();
+                    if (elapsedMinutes >= LOCK_DURATION_MINUTES) {
+                        toRelease.push_back(sid);
+                    }
+                } else {
+                    // If no timestamp found for a locked seat (shouldn't happen), release it.
+                    toRelease.push_back(sid);
+                }
+            }
+        }
+        // Release after iteration to avoid iterator invalidation.
+        for (size_t i = 0; i < toRelease.size(); ++i) {
+            int sid = toRelease[i];
+            seatStates[sid] = SeatState::AVAILABLE;
+            lockTimestamps.erase(sid);
+        }
+    }
+
+    // Method to get a list of available seat ids (after refreshing locks).
+    // Returns seat ids whose state is AVAILABLE.
+    vector<int> getAvailableSeats() {
+        refreshLocks();
+        vector<int> result;
+        for (map<int, SeatState>::iterator it = seatStates.begin(); it != seatStates.end(); ++it) {
+            if (it->second == SeatState::AVAILABLE) result.push_back(it->first);
+        }
+        return result;
+    }
+
+    // Method to lock a seat for LOCK_DURATION_MINUTES.
+    // Returns true if locking succeeded (seat was AVAILABLE), false otherwise.
+    bool lockSeat(int seatId) {
+        refreshLocks();
+        map<int, SeatState>::iterator it = seatStates.find(seatId);
+        if (it == seatStates.end()) return false; // seat not part of this show
+        if (it->second == SeatState::AVAILABLE) {
+            it->second = SeatState::LOCKED;
+            lockTimestamps[seatId] = chrono::system_clock::now();
+            return true;
+        }
+        return false;
+    }
+
+    // Method to release a previously locked seat (e.g., user cancels before payment).
+    // Returns true if release succeeded.
+    bool releaseLockedSeat(int seatId) {
+        refreshLocks();
+        map<int, SeatState>::iterator it = seatStates.find(seatId);
+        if (it == seatStates.end()) return false;
+        if (it->second == SeatState::LOCKED) {
+            it->second = SeatState::AVAILABLE;
+            lockTimestamps.erase(seatId);
+            return true;
+        }
+        return false;
+    }
+
+    // Method to confirm booking (payment done) for a locked seat.
+    // Returns true if booking succeeded (seat was locked and not expired).
+    bool confirmBooking(int seatId) {
+        refreshLocks();
+        map<int, SeatState>::iterator it = seatStates.find(seatId);
+        if (it == seatStates.end()) return false;
+        if (it->second == SeatState::LOCKED) {
+            // Seat still locked -> confirm booking
+            it->second = SeatState::BOOKED;
+            lockTimestamps.erase(seatId);
+            return true;
+        }
+        return false;
+    }
+
+    // Method to get the current state of a seat (after refresh).
+    // Returns AVAILABLE/LOCKED/BOOKED. If seat not found, returns AVAILABLE by default.
+    SeatState getSeatState(int seatId) {
+        refreshLocks();
+        map<int, SeatState>::iterator it = seatStates.find(seatId);
+        if (it == seatStates.end()) return SeatState::AVAILABLE;
+        return it->second;
+    }
+};
+
+// ----------------- Driver (interactive) -----------------
+
+int main() {
+    // ----------------- Interactive driver flow -----------------
+    cout << "Welcome to minimal BookMyShow LLD Demo (console)" << endl;
+
+    // Prompt user for city
+    cout << "Enter city: ";
+    string city;
+    getline(cin, city);
+
+    // Retrieve movies in that city
+    vector<Movie> &movies = movieController.getMoviesByCityRef(city);
+    if (movies.size() == 0) {
+        cout << "No movies found in city: " << city << endl;
+        return 0;
+    }
+
+    // Display movies
+    cout << "Movies available in " << city << ":" << endl;
+    for (size_t i = 0; i < movies.size(); ++i) {
+        cout << "MovieId: " << movies[i].movieId << " - " << movies[i].name << " (" << movies[i].duration << " mins)" << endl;
+    }
+
+    // Ask user to select movieId
+    cout << "Enter MovieId to view shows: ";
+    string movieIdStr;
+    getline(cin, movieIdStr);
+    int movieId = atoi(movieIdStr.c_str());
+
+    // Find shows of that movie in the chosen city
+    vector<Theatre> &theatresInCity = theatreController.getTheatresByCityRef(city);
+    vector<pair<Show*, Theatre*> > availableShows; // pair of show pointer and theatre pointer
+
+    for (size_t i = 0; i < theatresInCity.size(); ++i) {
+        for (size_t j = 0; j < theatresInCity[i].shows.size(); ++j) {
+            if (theatresInCity[i].shows[j].movie.movieId == movieId) {
+                availableShows.push_back(make_pair(&theatresInCity[i].shows[j], &theatresInCity[i]));
+            }
+        }
+    }
+
+    // If no shows found
+    if (availableShows.size() == 0) {
+        cout << "No shows for the selected movie in city: " << city << endl;
+        return 0;
+    }
+
+    // Display shows
+    cout << "Shows found:" << endl;
+    for (size_t i = 0; i < availableShows.size(); ++i) {
+        Show* sh = availableShows[i].first;
+        Theatre* th = availableShows[i].second;
+        cout << "ShowId: " << sh->showId << " | Movie: " << sh->movie.name << " | Theatre: " << th->address << " | Time: " << sh->startTime << endl;
+    }
+
+    // Ask user to select a show
+    cout << "Enter ShowId to view seats: ";
+    string showIdStr;
+    getline(cin, showIdStr);
+    int showId = atoi(showIdStr.c_str());
+
+    // Find the selected show pointer (search in city's theatres)
+    pair<int, Show*> found = theatreController.findTheatreAndShowByIdInCity(showId, city);
+    if (found.first == -1 || found.second == nullptr) {
+        cout << "Show not found in city. Exiting." << endl;
+        return 0;
+    }
+    Show* chosenShow = found.second;
+    Theatre &theatreContaining = theatreController.getTheatresByCityRef(city)[found.first];
+
+    // Display available seats for chosen show
+    vector<int> availSeats = chosenShow->getAvailableSeats();
+    if (availSeats.size() == 0) {
+        cout << "No available seats for this show." << endl;
+        return 0;
+    }
+    cout << "Available seats (SeatId - Row - Category):" << endl;
+    for (size_t i = 0; i < availSeats.size(); ++i) {
+        int sid = availSeats[i];
+        Seat* sd = chosenShow->screen.getSeatById(sid);
+        if (sd != nullptr) {
+            cout << "SeatId: " << sid << " - Row: " << sd->rowInfo << " - Cat: " << sd->category << endl;
+        } else {
+            cout << "SeatId: " << sid << " - details missing" << endl;
+        }
+    }
+
+    // Ask user to choose a seat to lock
+    cout << "Enter SeatId to lock: ";
+    string seatIdStr;
+    getline(cin, seatIdStr);
+    int seatId = atoi(seatIdStr.c_str());
+
+    // Attempt to lock the seat
+    if (!chosenShow->lockSeat(seatId)) {
+        cout << "Failed to lock seat. It might be already locked/booked or invalid." << endl;
+        return 0;
+    }
+    cout << "Seat " << seatId << " locked for " << Show::LOCK_DURATION_MINUTES << " minutes. Please pay within this time." << endl;
+
+    // Interact with user for payment/cancel/status
+    while (true) {
+        cout << "Enter command: 'pay' to confirm payment, 'status' to check lock remaining, 'cancel' to release lock, 'simulate <minutes>' to fast-forward time for testing, 'exit' to quit: ";
+        string cmdLine;
+        getline(cin, cmdLine);
+        if (cmdLine == "pay") {
+            // Attempt to confirm booking
+            bool ok = chosenShow->confirmBooking(seatId);
+            if (ok) {
+                Booking bk(chosenShow->showId, seatId, "PaidByCard-XXXX");
+                bk.printBooking();
+                break;
+            } else {
+                cout << "Payment failed: either lock expired or seat not in locked state." << endl;
+                break;
+            }
+        } else if (cmdLine == "cancel") {
+            bool released = chosenShow->releaseLockedSeat(seatId);
+            if (released) {
+                cout << "Lock released. Seat is now AVAILABLE." << endl;
+            } else {
+                cout << "Could not release lock (maybe expired or already booked)." << endl;
+            }
+            break;
+        } else if (cmdLine.size() >= 9 && cmdLine.substr(0,9) == "simulate ") {
+            // simulate X minutes: helpful for testing lock expiry quickly
+            string arg = cmdLine.substr(9);
+            int minutes = atoi(arg.c_str());
+            chosenShow->simulatePassMinutesForSeat(seatId, minutes);
+            cout << "Simulated forward " << minutes << " minutes for seat " << seatId << ". Use 'status' to check." << endl;
+        } else if (cmdLine == "exit") {
+            cout << "Exiting. Lock remains until expiry or you re-run the flow." << endl;
+            break;
+        } else {
+            cout << "Unknown command. Try again." << endl;
+        }
+    }
+
+    cout << "Driver session ended. Thank you!" << endl;
+    return 0;
+}
