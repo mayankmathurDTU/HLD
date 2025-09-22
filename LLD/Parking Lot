@@ -1,0 +1,384 @@
+# Functional Requirements
+1. System should allow creation and setup of a parking lot with multiple floors and parking spots.  
+2. Support multiple entry and exit gates.  
+3. Park vehicles (2-wheeler / 4-wheeler) and assign the nearest available spot from the chosen entry gate.  
+4. On entry, issue a ticket with timestamp and assigned spot.  
+5. On exit, accept the ticket, calculate hourly charges (round up partial hours), and free the spot.  
+6. Rates should be configurable per vehicle type.  
+7. If no spot is available, show a clear message: **"No Spot Available."**  
+
+# Non-Functional Requirements (NFR)
+1. Fast nearest-spot lookup for a gate (low latency on entry).  
+2. Reasonable memory usage for storing spot metadata.  
+3. Concurrency support – system should handle many requests at the same time  
+   (locking and thread-safety noted, but not implemented in simple demo).  
+4. Extensible design so that new vehicle types or billing strategies can be added easily.  
+5. Maintainability and testability – code should be easy to understand, modify, and test.  
+
+
+# Design Patterns
+## Strategy Pattern
+- Where: Spot selection logic (SpotSelectionStrategy, NearestSpotStrategy, FarthestSpotStrategy).  
+- Why: Allows changing parking spot selection policy (nearest, farthest, random, VIP) without modifying ParkingLot. Follows Open/Closed Principle.  
+- How: Inject strategy into ParkingLot:  
+  `SpotSelectionStrategy* strategy;`  
+  `strategy->selectSpot(candidates, gateId);`
+  We precompute the distance of every parking spot from each entry gate using a simple 
+  formula: vertical distance (difference in floors × 100) plus horizontal distance (spot index). 
+  When a vehicle arrives, the NearestSpotStrategy loops over available spots of the correct type, 
+  compares their precomputed distances from that entry gate, and selects the spot with the minimum 
+  distance as the “nearest first.”
+  
+## Factory Pattern (conceptual)
+- Where: Creation of ParkingSpot, Floor, Vehicle (in main or setup).  
+- Why: Centralizes object creation, makes it easy to add new spot/vehicle types later (compact, large, EV).  
+- Note: Not a separate factory class in current code, but object creation is centralized.
+
+
+# Core Entities
+
+- ParkingLot: Top-level coordinator / manager of the parking system.  
+- Floor: Contains parking spots.  
+- ParkingSpot: A physical slot with type, availability, and distances to gates.  
+- Gate: Entry/exit point; maintains pre-sorted spot lists by distance for each vehicle type.  
+- Vehicle: Represents a vehicle and its type (2-wheeler / 4-wheeler).  
+- Ticket: Issued at entry; includes vehicle, assigned spot, entry time, and ticket ID.  
+- PaymentService: Computes charges based on hourly rates.  
+- NearestSpotStrategy: Conceptual strategy to pick nearest spot; implemented by scanning pre-sorted lists.  
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+#include <bits/stdc++.h>
+using namespace std;
+using Clock = chrono::system_clock;
+
+/////////////////////////////////////////////////////////////
+// ENUMS
+/////////////////////////////////////////////////////////////
+
+// Represents type of vehicle
+enum class VehicleType { TWO_WHEELER, FOUR_WHEELER };
+
+/////////////////////////////////////////////////////////////
+// VEHICLE CLASS
+/////////////////////////////////////////////////////////////
+
+class Vehicle {
+    string plate;                 // Vehicle registration number
+    VehicleType type;             // Vehicle type (2W/4W)
+public:
+    Vehicle(const string& p, VehicleType t) : plate(p), type(t) {}
+    VehicleType getType() const { return type; }   // returns vehicle type
+    string getPlate() const { return plate; }      // returns vehicle number
+};
+
+/////////////////////////////////////////////////////////////
+// PARKING SPOT CLASS
+/////////////////////////////////////////////////////////////
+
+class ParkingSpot {
+    string id;                               // unique id of spot
+    int floorNumber;                         // floor number of this spot
+    int spotNumber;                          // index/serial number of spot
+    VehicleType spotType;                    // which type of vehicle this spot supports
+    bool occupied;                           // true if vehicle parked
+    string occupyingTicketId;                // ticket id of occupying vehicle
+    map<string, int> distancesFromGate;      // precomputed distance from each gate
+        //when finding neareast gate, we get a stirng gateId
+        // every spot knows its distance from that gate.
+public:
+    ParkingSpot(const string& i, int f, int sn, VehicleType st)
+        : id(i), floorNumber(f), spotNumber(sn), spotType(st), occupied(false) {}
+
+    bool isAvailable() const { return !occupied; }        // check availability
+    void occupy(const string& ticketId) {                 // mark spot as occupied
+        occupied = true; occupyingTicketId = ticketId;
+    }
+    void freeSpot() { occupied = false; occupyingTicketId = ""; } // free spot
+
+    string getId() const { return id; }                   // get spot id
+    int getFloorNumber() const { return floorNumber; }    // get floor number
+    int getSpotNumber() const { return spotNumber; }      // get spot number
+    VehicleType getSpotType() const { return spotType; }  // get spot type
+
+    void setDistance(const string& gateId, int d) { distancesFromGate[gateId] = d; } // set distance
+    int getDistance(const string& gateId) const { return distancesFromGate.at(gateId); } // get distance
+};
+
+/////////////////////////////////////////////////////////////
+// FLOOR CLASS
+/////////////////////////////////////////////////////////////
+
+class Floor {
+    int floorNumber;                  // floor number
+    vector<ParkingSpot*> spots;       // collection of spots on this floor
+public:
+    Floor(int n) : floorNumber(n) {}
+    void addSpot(ParkingSpot* s) { spots.push_back(s); }         // add a spot
+    const vector<ParkingSpot*>& getSpots() const { return spots; } // get all spots
+    int getFloorNumber() const { return floorNumber; }           // get floor number
+};
+
+/////////////////////////////////////////////////////////////
+// GATE CLASS
+/////////////////////////////////////////////////////////////
+
+class Gate {
+    string id;                                        // unique gate id
+    string name;                                      // gate name
+    int floorNumber;                                  // floor where gate is located
+    bool entry;                                       // true if entry gate
+    bool exit;                                        // true if exit gate
+public:
+    Gate(const string& gid, const string& gname, int fnum, bool entryGate, bool exitGate)
+        : id(gid), name(gname), floorNumber(fnum), entry(entryGate), exit(exitGate) {}
+
+    string getId() const { return id; }               // get gate id
+    string getName() const { return name; }           // get gate name
+    bool isEntryGate() const { return entry; }        // check if entry
+    bool isExitGate() const { return exit; }          // check if exit
+    int getFloorNumber() const { return floorNumber; }// get floor number
+};
+
+/////////////////////////////////////////////////////////////
+// TICKET CLASS
+/////////////////////////////////////////////////////////////
+
+class Ticket {
+    string id;                          // ticket id
+    Vehicle vehicle;                     // vehicle assigned
+    ParkingSpot* spot;                   // spot assigned
+    Clock::time_point entryTime;         // entry timestamp
+    bool active;                         // true if active
+public:
+    Ticket(const string& tid, const Vehicle& v, ParkingSpot* s)
+        : id(tid), vehicle(v), spot(s), entryTime(Clock::now()), active(true) {}
+
+    string getId() const { return id; }               // get ticket id
+    Vehicle getVehicle() const { return vehicle; }    // get vehicle info
+    ParkingSpot* getSpot() const { return spot; }     // get spot pointer
+    Clock::time_point getEntryTime() const { return entryTime; } // get entry time
+    bool isActive() const { return active; }          // check if active
+    void deactivate() { active = false; }             // deactivate ticket
+};
+
+/////////////////////////////////////////////////////////////
+// PAYMENT SERVICE
+/////////////////////////////////////////////////////////////
+
+class PaymentService {
+    map<VehicleType, double> hourlyRate; // rate per hour per vehicle type
+public:
+    PaymentService() {
+        hourlyRate[VehicleType::TWO_WHEELER] = 10.0;   // 10 per hr for 2W
+        hourlyRate[VehicleType::FOUR_WHEELER] = 20.0;  // 20 per hr for 4W
+    }
+    double computeFee(const Ticket* t, const Clock::time_point& exitTime) {
+        long long minutes = chrono::duration_cast<chrono::minutes>(exitTime - t->getEntryTime()).count();
+        if (minutes <= 0) minutes = 0;
+        long long hours = (minutes + 59) / 60;  // round up
+        double rate = hourlyRate.at(t->getVehicle().getType());
+        return rate * hours;
+    }
+};
+
+/////////////////////////////////////////////////////////////
+// STRATEGY PATTERN INTERFACE
+/////////////////////////////////////////////////////////////
+
+class SpotSelectionStrategy {
+public:
+    virtual ParkingSpot* selectSpot(const vector<ParkingSpot*>& spots, const string& gateId) = 0; // abstract
+    virtual ~SpotSelectionStrategy() {}
+};
+
+// Select nearest available spot
+// to calculate this distance between spot and gate we can use 
+// abs(spot->floor()-gate->floot())*100 (100 is penalty) + spot->id() (id is like index) horizontal distance from gate
+class NearestSpotStrategy : public SpotSelectionStrategy {
+public:
+    ParkingSpot* selectSpot(const vector<ParkingSpot*>& spots, const string& gateId) override {
+        ParkingSpot* chosen = nullptr;
+        int bestDist = INT_MAX;
+        for (ParkingSpot* sp : spots) {
+            if (sp->isAvailable()) {
+                int d = sp->getDistance(gateId);
+                if (d < bestDist) {
+                    bestDist = d; chosen = sp;
+                }
+            }
+        }
+        return chosen;
+    }
+};
+
+// Select farthest available spot
+class FarthestSpotStrategy : public SpotSelectionStrategy {
+public:
+    ParkingSpot* selectSpot(const vector<ParkingSpot*>& spots, const string& gateId) override {
+        ParkingSpot* chosen = nullptr;
+        int bestDist = -1;
+        for (ParkingSpot* sp : spots) {
+            if (sp->isAvailable()) {
+                int d = sp->getDistance(gateId);
+                if (d > bestDist) {
+                    bestDist = d; chosen = sp;
+                }
+            }
+        }
+        return chosen;
+    }
+};
+
+/////////////////////////////////////////////////////////////
+// PARKING LOT CLASS
+/////////////////////////////////////////////////////////////
+
+class ParkingLot {
+    string id;                                        // parking lot id
+    vector<Floor*> floors;                            // list of floors
+    map<string, Gate*> gates;                         // all gates
+    map<string, ParkingSpot*> allSpots;               // spotId -> spot*// all spots of all floors 
+    map<string, Ticket*> activeTickets;               // active tickets
+    PaymentService paymentService;                    // payment service
+    int ticketCounter;                                // counter for ticket ids
+    SpotSelectionStrategy* strategy;                  // strategy for selecting spot
+public:
+    ParkingLot(const string& pid, SpotSelectionStrategy* s)
+        : id(pid), ticketCounter(0), strategy(s) {}
+    ~ParkingLot() {
+        for (auto& p : allSpots) delete p.second;
+        for (auto f : floors) delete f;
+        for (auto& g : gates) delete g.second;
+        for (auto& t : activeTickets) delete t.second;
+    }
+
+    void addFloor(Floor* f) {
+        floors.push_back(f);
+        for (auto s : f->getSpots()) {
+            allSpots[s->getId()] = s;
+        }
+    }
+
+    void addGate(Gate* g) { gates[g->getId()] = g; }
+
+    // compute distance between spot and gate
+    int computeDistance(ParkingSpot* s, Gate* g) {
+        int vertical = abs(s->getFloorNumber() - g->getFloorNumber()) * 100; // penalty per floor
+        int horizontal = s->getSpotNumber(); // simple index as distance
+        return vertical + horizontal;
+    }
+
+    // Precompute distances for all spots to all gates
+    void precompute() {
+        for (auto& gid_gptr : gates) {
+            string gid = gid_gptr.first;
+            Gate* gate = gid_gptr.second;
+            for (auto& sid_spot : allSpots) {
+                ParkingSpot* spot = sid_spot.second;
+                int dist = computeDistance(spot, gate);
+                spot->setDistance(gid, dist);
+            }
+        }
+    }
+
+    // Park a vehicle using selected strategy
+    string parkVehicle(const string& gateId, const Vehicle& vehicle) {
+        if (gates.count(gateId) == 0) {
+            cout << "Gate not found\n"; return "";
+        }
+        Gate* gate = gates[gateId];
+        if (!gate->isEntryGate()) {
+            cout << "Not an entry gate\n"; return "";
+        }
+
+        // collect candidate spots of required type
+        vector<ParkingSpot*> candidates;
+        for (auto& kv : allSpots) {
+            ParkingSpot* sp = kv.second;
+            if (sp->getSpotType() == vehicle.getType()) candidates.push_back(sp);
+        }
+
+        // strategy chooses spot
+        ParkingSpot* chosen = strategy->selectSpot(candidates, gateId);
+        if (!chosen) {
+            cout << "No spot available\n"; return "";
+        }
+
+        ticketCounter++;
+        string ticketId = "T" + to_string(ticketCounter);
+        chosen->occupy(ticketId);
+        Ticket* t = new Ticket(ticketId, vehicle, chosen);
+        activeTickets[ticketId] = t;
+        cout << "Vehicle " << vehicle.getPlate() << " parked at " << chosen->getId()
+             << " (Ticket " << ticketId << ")\n";
+        return ticketId;
+    }
+
+    // Exit and calculate fee
+    double exitVehicle(const string& ticketId, const string& exitGateId) {
+        if (activeTickets.count(ticketId) == 0) {
+            cout << "Invalid ticket\n"; return -1.0;
+        }
+        if (gates.count(exitGateId) == 0) {
+            cout << "Exit gate not found\n"; return -1.0;
+        }
+        Ticket* t = activeTickets[ticketId];
+        double fee = paymentService.computeFee(t, Clock::now());
+        ParkingSpot* sp = t->getSpot();
+        sp->freeSpot();
+        t->deactivate();
+        activeTickets.erase(ticketId);
+        cout << "Ticket " << ticketId << " exited, Fee: " << fee << "\n";
+        delete t;
+        return fee;
+    }
+};
+
+/////////////////////////////////////////////////////////////
+// DEMO MAIN
+/////////////////////////////////////////////////////////////
+
+int main() {
+    // Use nearest strategy
+    SpotSelectionStrategy* nearest = new NearestSpotStrategy();
+    ParkingLot lot("P1", nearest);
+
+    // Create 2 floors with some spots
+    for (int fl = 0; fl < 2; ++fl) {
+        Floor* f = new Floor(fl);
+        int spotIndex = 1;
+        for (int i = 0; i < 4; ++i) {
+            VehicleType st = (i % 2 == 0) ? VehicleType::FOUR_WHEELER : VehicleType::TWO_WHEELER;
+            string sid = "F" + to_string(fl) + "_S" + to_string(spotIndex);
+            ParkingSpot* sp = new ParkingSpot(sid, fl, spotIndex, st);
+            f->addSpot(sp);
+            spotIndex++;
+        }
+        lot.addFloor(f);
+    }
+
+    // Add gates
+    Gate* g1 = new Gate("G1", "Main Gate Ground", 0, true, true);
+    Gate* g2 = new Gate("G2", "Side Gate First", 1, true, true);
+    lot.addGate(g1);
+    lot.addGate(g2);
+
+    // Precompute distances
+    lot.precompute();
+
+    // Park vehicles
+    Vehicle car("CAR123", VehicleType::FOUR_WHEELER);
+    string tk1 = lot.parkVehicle("G1", car);
+
+    Vehicle bike("BIKE456", VehicleType::TWO_WHEELER);
+    string tk2 = lot.parkVehicle("G1", bike);
+
+    // Exit vehicles
+    lot.exitVehicle(tk1, "G2");
+    lot.exitVehicle(tk2, "G1");
+
+    delete nearest; // cleanup
+    return 0;
+}
+
