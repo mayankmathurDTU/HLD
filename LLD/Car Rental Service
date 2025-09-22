@@ -1,0 +1,300 @@
+# Vehicle Rental System – Theory of Design
+
+## Functional Requirements (what the system must do)
+- Customers can browse and reserve available vehicles (car, bike, truck, etc.) for specific dates.  
+- Each vehicle has details: make, model, year, license plate, rental price per day, type (car/bike/truck).  
+- Customers can search/filter vehicles by type, price, availability, etc.  
+- The system should allow reservations:  
+  - Create reservation  
+  - Modify reservation  
+  - Cancel reservation  
+- Track vehicle availability (reserved/free).  
+- Handle customer information (name, contact, license).  
+- Handle payment processing.  
+- Handle concurrent reservations and ensure consistency.  
+
+---
+
+## Non-Functional Requirements (quality aspects)
+- **Scalability** – Should support large numbers of customers and vehicles.  
+- **Reliability** – No double booking.  
+- **Performance** – Fast search and booking.  
+- **Security** – Protect customer details and payments.  
+- **Maintainability** – Easy to add new vehicle types (future extension).  
+- **Data Consistency** – Across reservations and availability.  
+
+---
+
+## Core Entities (important concepts)
+- **Vehicle** (abstract parent class)  
+  - Car  
+  - Bike  
+  - Truck  
+- **Customer**  
+- **Reservation**  
+- **Payment**  
+- **RentalSystem** (manages everything)  
+
+---
+
+## Design Patterns
+- **Factory Pattern**  
+  To create different types of vehicles (Car, Bike, Truck) without changing client code.  
+  - *Reason*: Helps when adding new vehicle types in future.  
+
+- **Singleton Pattern**  
+  For the central RentalSystem (only one system managing all reservations).  
+  - *Reason*: Only one instance of system should manage availability and reservations.  
+
+- **Strategy Pattern (optional)**  
+  For payment processing (different payment methods: credit card, wallet, UPI, etc.).  
+  - *Reason*: Makes it easy to extend payment methods.  
+
+---
+
+## Classes and Roles
+- **Vehicle (Base class)**  
+  - Data: make, model, year, license plate, price per day, availability.  
+  - Methods: `displayDetails()`, `isAvailable()`, etc.  
+
+- **Car / Bike / Truck (Derived classes)**  
+  - Inherit from Vehicle.  
+
+- **Customer**  
+  - Data: name, contact, license number.  
+  - Methods: `displayCustomerInfo()`.  
+
+- **Reservation**  
+  - Data: reservation ID, customer, vehicle, start date, end date, status.  
+  - Methods: `create()`, `modify()`, `cancel()`.  
+
+- **Payment**  
+  - Data: amount, payment method.  
+  - Methods: `processPayment()`.  
+
+- **RentalSystem (Singleton)**  
+  - Manages: vehicles, customers, reservations.  
+  - Methods: `addVehicle()`, `searchVehicle()`, `makeReservation()`, `cancelReservation()`.  
+
+----------------------------------------------------------------------------------------------------------------------------------------------
+
+#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+// ---------- Vehicle Base Class ----------
+class Vehicle {
+protected:
+    // Vehicle brand (e.g., Toyota, Honda)
+    string make;
+
+    // Vehicle model (e.g., Corolla, CBR)
+    string model;
+
+    // Manufacturing year of vehicle
+    int year;
+
+    // License plate number (unique identifier for the vehicle)
+    string licensePlate;
+
+    // Rental price per day for the vehicle
+    double pricePerDay;
+
+    // Availability status (true = available, false = reserved)
+    bool available;
+
+public:
+    // Constructor: initializes all vehicle details
+    Vehicle(string mk, string mdl, int yr, string plate, double price)
+        : make(mk), model(mdl), year(yr), licensePlate(plate), pricePerDay(price), available(true) {}
+
+    // Display details of the vehicle
+    virtual void displayDetails() {
+        cout << "Make: " << make << ", Model: " << model
+             << ", Year: " << year << ", Plate: " << licensePlate
+             << ", Price/Day: " << pricePerDay
+             << ", Available: " << (available ? "Yes" : "No") << endl;
+    }
+
+    // Check if vehicle is available
+    bool isAvailable() { return available; }
+
+    // Set vehicle availability (true for available, false for reserved)
+    void setAvailability(bool status) { available = status; }
+
+    // Get daily rental price
+    double getPrice() { return pricePerDay; }
+
+    // Get license plate number
+    string getPlate() { return licensePlate; }
+};
+
+// ---------- Derived Vehicle Classes ----------
+class Car : public Vehicle {
+public:
+    // Car constructor calls base Vehicle constructor
+    Car(string mk, string mdl, int yr, string plate, double price)
+        : Vehicle(mk, mdl, yr, plate, price) {}
+};
+
+class Bike : public Vehicle {
+public:
+    // Bike constructor calls base Vehicle constructor
+    Bike(string mk, string mdl, int yr, string plate, double price)
+        : Vehicle(mk, mdl, yr, plate, price) {}
+};
+
+class Truck : public Vehicle {
+public:
+    // Truck constructor calls base Vehicle constructor
+    Truck(string mk, string mdl, int yr, string plate, double price)
+        : Vehicle(mk, mdl, yr, plate, price) {}
+};
+
+// ---------- Customer ----------
+class Customer {
+    // Customer's full name
+    string name;
+
+    // Customer's contact number
+    string contact;
+
+    // Customer's driver license number
+    string licenseNo;
+
+public:
+    // Constructor: initializes customer details
+    Customer(string n, string c, string l) : name(n), contact(c), licenseNo(l) {}
+
+    // Display customer details
+    void displayCustomerInfo() {
+        cout << "Customer: " << name << ", Contact: " << contact
+             << ", License: " << licenseNo << endl;
+    }
+
+    // Get customer name
+    string getName() { return name; }
+};
+
+// ---------- Reservation ----------
+class Reservation {
+    // Unique reservation ID
+    string reservationId;
+
+    // Pointer to the customer who made the reservation
+    Customer* customer;
+
+    // Pointer to the reserved vehicle
+    Vehicle* vehicle;
+
+    // Reservation start date
+    string startDate;
+
+    // Reservation end date
+    string endDate;
+
+public:
+    // Constructor: creates a reservation and marks vehicle unavailable
+    Reservation(string id, Customer* c, Vehicle* v, string start, string end)
+        : reservationId(id), customer(c), vehicle(v), startDate(start), endDate(end) {
+        vehicle->setAvailability(false); // important to block vehicle for others
+    }
+
+    // Display reservation details
+    void displayReservation() {
+        cout << "Reservation ID: " << reservationId << endl;
+        customer->displayCustomerInfo();
+        vehicle->displayDetails();
+        cout << "From: " << startDate << " To: " << endDate << endl;
+    }
+
+    // Cancel reservation (frees vehicle)
+    void cancel() {
+        cout << "Reservation " << reservationId << " cancelled." << endl;
+        vehicle->setAvailability(true);
+    }
+};
+
+// ---------- Rental System (Singleton) ----------
+class RentalSystem {
+    // Collection of all vehicles in the system
+    vector<Vehicle*> vehicles;
+
+    // Collection of all customers
+    vector<Customer*> customers;
+
+    // Collection of all reservations
+    vector<Reservation*> reservations;
+
+    // Singleton instance (only one system allowed)
+    static RentalSystem* instance;
+
+    // Private constructor so no one can create extra instances
+    RentalSystem() {}
+
+public:
+    // Get singleton instance of RentalSystem
+    static RentalSystem* getInstance() {
+        if (instance == NULL) {
+            instance = new RentalSystem();
+        }
+        return instance;
+    }
+
+    // Add a vehicle to the system
+    void addVehicle(Vehicle* v) { vehicles.push_back(v); }
+
+    // Add a customer to the system
+    void addCustomer(Customer* c) { customers.push_back(c); }
+
+    // Display all currently available vehicles
+    void listAvailableVehicles() {
+        cout << "\nAvailable Vehicles:\n";
+        for (auto v : vehicles) {
+            if (v->isAvailable()) v->displayDetails();
+        }
+    }
+
+    // Make a reservation if vehicle is available
+    Reservation* makeReservation(string id, Customer* c, Vehicle* v, string start, string end) {
+        if (!v->isAvailable()) {
+            cout << "Vehicle not available!" << endl;
+            return NULL;
+        }
+        Reservation* r = new Reservation(id, c, v, start, end);
+        reservations.push_back(r);
+        cout << "Reservation successful!\n";
+        return r;
+    }
+};
+// Initialize static member
+RentalSystem* RentalSystem::instance = NULL;
+
+// ---------- Main Program ----------
+int main() {
+    // Get the singleton instance of the system
+    RentalSystem* system = RentalSystem::getInstance();
+
+    // Add Vehicles
+    system->addVehicle(new Car("Toyota", "Corolla", 2020, "ABC123", 50));
+    system->addVehicle(new Bike("Honda", "CBR", 2021, "BIKE45", 20));
+    system->addVehicle(new Truck("Volvo", "FH16", 2019, "TRUCK9", 100));
+
+    // Add Customer
+    Customer* cust1 = new Customer("John Doe", "1234567890", "DL123");
+    system->addCustomer(cust1);
+
+    // Show available vehicles
+    system->listAvailableVehicles();
+
+    // Make a reservation
+    Reservation* res1 = system->makeReservation("R001", cust1, system->makeReservation("X", cust1, NULL, "", "") ? NULL : new Car("Ford","Focus",2022,"NEW999",60), "2025-09-25", "2025-09-30");
+
+    // Cancel reservation (example)
+    if (res1 != NULL) {
+        res1->cancel();
+    }
+
+    return 0;
+}
