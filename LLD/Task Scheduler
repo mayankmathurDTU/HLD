@@ -1,0 +1,384 @@
+Functional Requirements:
+1. Add Task – System should allow adding new tasks with ID, name, and priority.
+2. Add Dependencies – Each task can depend on one or more other tasks.
+3. Check Dependencies – Scheduler verifies all dependent tasks are completed before running.
+4. Execute Tasks – Tasks execute only when eligible (all dependencies done).
+5. Cancel Task – A pending task can be removed before execution.
+6. Track Status – Each task must show status: Pending, Running, or Completed.
+7. Sequential Execution – Tasks execute in correct dependency order.
+8. Completion Guarantee – Scheduler runs until all tasks are completed or cancelled.
+
+Non-Functional Requirements:
+1. Reliability – Scheduler should correctly handle dependencies and avoid errors.
+2. Maintainability – Code must be modular and easy to modify or extend.
+3. Scalability – Should handle large numbers of tasks efficiently.
+4. Readability – Code should remain simple, structured, and beginner-friendly.
+5. Error Handling – Should handle missing or invalid dependencies gracefully.
+6. Deterministic Behavior – Execution order should always remain consistent.
+7. Resource Efficiency – Use minimal memory and CPU while running.
+8. Extensibility – Should allow future features like timed or parallel scheduling.
+
+------------------------------------------------------------------------------------------------------------------------------------
+Approach:
+1. Make a TaskItem class to store task details like id, name, and dependencies.
+2. Make a TaskScheduler class to manage all tasks and run them one by one.
+3. Before running a task, check if all tasks it depends on are completed.
+4. If dependencies are done, run the task and mark it as completed.
+5. Keep looping until every task is finished or cancelled.
+6. Show task status as Pending, Running, or Completed while running.
+7. Code is kept simple so it can be easily understood or improved later.
+---------------------------------------------------------------------------------------------------------------------------------
+
+#include <iostream>   // for input-output
+#include <vector>     // for using vector container
+#include <string>     // for using string type
+using namespace std;  // for avoiding std:: prefix everywhere
+
+// ======================= ENUM ==========================
+
+// Enum to represent current status of a task
+enum TaskStatus {
+    Pending,    // Task is not started yet
+    Running,    // Task is currently running
+    Completed   // Task has finished successfully
+};
+
+// ======================= CLASS: TaskItem ==========================
+
+// Represents one single task
+class TaskItem {
+public:
+    int id;                     // Unique ID for each task
+    string name;                // Task name (like "Download File")
+    int priority;               // Priority number (not used for sorting yet)
+    TaskStatus status;          // Current status of this task
+    vector<int> dependencies;   // List of dependent task IDs that must finish first
+
+    // Constructor: initializes all data members
+    TaskItem(int id, string name, int priority) {
+        this->id = id;              // assign task ID
+        this->name = name;          // assign task name
+        this->priority = priority;  // assign priority value
+        this->status = Pending;     // set default status as Pending
+    }
+
+    // Function to execute the task
+    void execute() {
+        status = Running;                                   // mark as running
+        cout << "Executing Task: " << name << endl;         // print which task is running
+        status = Completed;                                 // mark as completed
+    }
+};
+
+// ======================= CLASS: TaskScheduler ==========================
+
+// Handles scheduling, managing and executing multiple tasks
+class TaskScheduler {
+private:
+    vector<TaskItem*> taskQueue;  // Stores all tasks that are added
+
+public:
+    // Function to add a new task to the queue
+    void addTask(TaskItem* task) {
+        taskQueue.push_back(task);                         // store pointer to the task
+        cout << "Task Added: " << task->name << endl;       // print confirmation
+    }
+
+    // Function to cancel and remove a task by ID
+    void cancelTask(int id) {
+        for (int i = 0; i < taskQueue.size(); i++) {        // loop through task list
+            if (taskQueue[i]->id == id) {                   // if matching ID found
+                cout << "Task Cancelled: " 
+                     << taskQueue[i]->name << endl;         // print which task cancelled
+                taskQueue.erase(taskQueue.begin() + i);     // remove from vector
+                return;                                     // exit function
+            }
+        }
+    }
+
+    // Function to find a task by ID
+    TaskItem* findTask(int id) {
+        for (int i = 0; i < taskQueue.size(); i++) {        // loop through task list
+            if (taskQueue[i]->id == id)                     // if match found
+                return taskQueue[i];                        // return pointer to that task
+        }
+        return NULL;                                        // return NULL if not found
+    }
+
+    // Function to check if all dependent tasks are completed
+    bool canRun(TaskItem* task) {
+        for (int i = 0; i < task->dependencies.size(); i++) {   // check all dependencies
+            int depId = task->dependencies[i];                  // get dependent task ID
+            TaskItem* depTask = findTask(depId);                // find that task in queue
+            if (depTask == NULL) return false;                  // dependency missing
+            if (depTask->status != Completed) return false;     // dependency not finished yet
+        }
+        return true;                                            // all dependencies done
+    }
+
+    // Function to execute all tasks (respecting dependencies)
+    void run() {
+        bool tasksPending = true;                               // flag to track if work remains
+
+        while (tasksPending) {                                  // loop until all tasks done
+            tasksPending = false;                               // assume all done for now
+
+            for (int i = 0; i < taskQueue.size(); i++) {        // check every task
+                TaskItem* task = taskQueue[i];                  // current task pointer
+
+                // If task not started yet and dependencies done
+                if (task->status == Pending && canRun(task)) {
+                    task->execute();                            // run the task
+                }
+
+                // If any task still pending, mark as not done
+                if (task->status != Completed) {
+                    tasksPending = true;
+                }
+            }
+        }
+    }
+};
+
+// ======================= MAIN FUNCTION ==========================
+
+// Example usage of the scheduler
+int main() {
+    TaskScheduler scheduler;                                    // create scheduler object
+
+    // Create 3 tasks with IDs, names, and priorities
+    TaskItem* taskA = new TaskItem(1, "Download Data", 2);      // task A
+    TaskItem* taskB = new TaskItem(2, "Process Data", 3);       // task B
+    TaskItem* taskC = new TaskItem(3, "Generate Report", 1);    // task C
+
+    // Define dependencies:
+    // Task B depends on A (A must complete before B)
+    taskB->dependencies.push_back(1);
+    // Task C depends on B (B must complete before C)
+    taskC->dependencies.push_back(2);
+
+    // Add all tasks to scheduler
+    scheduler.addTask(taskA);
+    scheduler.addTask(taskB);
+    scheduler.addTask(taskC);
+
+    // Run the scheduler to execute tasks in correct order
+    scheduler.run();
+
+    // Free dynamically allocated memory
+    delete taskA;
+    delete taskB;
+    delete taskC;
+
+    // Program ends successfully
+    return 0;
+}
+
+----------------------------------------------------------------------------------------------------------------------
+USING TOPOLOGICAL SORT TO FIND CYCLE
+
+
+#include <iostream>   // for input-output
+#include <vector>     // for vector container
+#include <string>     // for string type
+#include <queue>      // for queue used by Kahn's algorithm
+using namespace std;  // avoid std:: prefix for brevity
+
+// Represents the status of a task
+enum TaskStatus {
+    Pending,    // Task not started
+    Running,    // Task running now
+    Completed   // Task finished
+};
+
+// Represents a single task with metadata and dependencies
+class TaskItem {
+public:
+    int id;                     // unique task id
+    string name;                // human-readable name
+    int priority;               // priority (unused for topo order)
+    TaskStatus status;          // current status
+    vector<int> dependencies;   // list of task IDs that must finish first
+
+    // Constructor to initialize a TaskItem
+    TaskItem(int id, string name, int priority) {
+        this->id = id;
+        this->name = name;
+        this->priority = priority;
+        this->status = Pending;
+    }
+
+    // Execute the task (simple simulation)
+    void execute() {
+        status = Running;
+        cout << "Executing Task: " << name << endl;
+        status = Completed;
+    }
+};
+
+// Manages tasks, dependency checks, cycle detection, and execution
+class TaskScheduler {
+private:
+    vector<TaskItem*> taskQueue;   // storage for added tasks
+
+public:
+    // Add a task pointer to the scheduler
+    void addTask(TaskItem* task) {
+        taskQueue.push_back(task);
+        cout << "Task Added: " << task->name << endl;
+    }
+
+    // Cancel (remove) a task by its id
+    void cancelTask(int id) {
+        for (int i = 0; i < (int)taskQueue.size(); i++) {
+            if (taskQueue[i]->id == id) {
+                cout << "Task Cancelled: " << taskQueue[i]->name << endl;
+                taskQueue.erase(taskQueue.begin() + i);
+                return;
+            }
+        }
+    }
+
+    // Find a task pointer by id (returns NULL if not found)
+    TaskItem* findTask(int id) {
+        for (int i = 0; i < (int)taskQueue.size(); i++) {
+            if (taskQueue[i]->id == id)
+                return taskQueue[i];
+        }
+        return NULL;
+    }
+
+    // Build graph and run Kahn's topological sort to detect cycles
+    // If possible, returns list of indices (in taskQueue) in topological order
+    // If missing dependency found or cycle exists, returns empty vector
+    vector<int> topologicalOrderOrEmpty() {
+        int n = (int)taskQueue.size();
+
+        // Map task id -> index in taskQueue for quick lookup
+        // We build a vector of ids and search linearly (simple, no unordered_map)
+        vector<int> ids; ids.reserve(n);
+        for (int i = 0; i < n; i++) ids.push_back(taskQueue[i]->id);
+
+        // Create adjacency list using indices (depIndex -> taskIndex)
+        vector<vector<int>> adj(n);
+        vector<int> indegree(n, 0);
+
+        // Build edges: for each task T, for each dependency D in T.dependencies
+        // add edge D -> T (meaning D must come before T)
+        for (int tIndex = 0; tIndex < n; tIndex++) {
+            TaskItem* task = taskQueue[tIndex];
+            for (int d = 0; d < (int)task->dependencies.size(); d++) {
+                int depId = task->dependencies[d];
+
+                // Find index of dependency id in ids (linear search)
+                int depIndex = -1;
+                for (int k = 0; k < n; k++) {
+                    if (ids[k] == depId) {
+                        depIndex = k;
+                        break;
+                    }
+                }
+
+                // If dependency not found among current tasks, report error and abort
+                if (depIndex == -1) {
+                    cout << "Error: dependency task with ID " << depId
+                         << " not found for task " << task->name << endl;
+                    return vector<int>(); // empty -> indicates failure
+                }
+
+                // Add directed edge depIndex -> tIndex
+                adj[depIndex].push_back(tIndex);
+                indegree[tIndex]++; // increase indegree for tIndex
+            }
+        }
+
+        // Kahn's algorithm: collect nodes with indegree 0
+        queue<int> q;
+        for (int i = 0; i < n; i++) {
+            if (indegree[i] == 0) q.push(i);
+        }
+
+        // Process nodes
+        vector<int> order; order.reserve(n);
+        while (!q.empty()) {
+            int curr = q.front(); q.pop();
+            order.push_back(curr);
+
+            // Decrease indegree of neighbors
+            for (int i = 0; i < (int)adj[curr].size(); i++) {
+                int nei = adj[curr][i];
+                indegree[nei]--;
+                if (indegree[nei] == 0) q.push(nei);
+            }
+        }
+
+        // If not all nodes were processed, there is a cycle
+        if ((int)order.size() != n) {
+            cout << "Error: cycle detected in task dependencies. Tasks cannot be scheduled." << endl;
+            return vector<int>(); // empty -> failure due to cycle
+        }
+
+        // Return valid topological order as indices into taskQueue
+        return order;
+    }
+
+    // Run tasks using topological order (detect cycles first)
+    void run() {
+        // Get topological order or empty on failure (missing dep or cycle)
+        vector<int> order = topologicalOrderOrEmpty();
+
+        // If order empty and tasks exist -> error already printed in helper
+        if (order.empty() && !taskQueue.empty()) {
+            cout << "Scheduler aborted due to errors above." << endl;
+            return;
+        }
+
+        // Execute tasks in topological order
+        for (int i = 0; i < (int)order.size(); i++) {
+            int idx = order[i];
+            TaskItem* task = taskQueue[idx];
+
+            // Skip tasks already completed (in case of previous runs)
+            if (task->status == Completed) continue;
+
+            // Execute the task (simple single-threaded run)
+            task->execute();
+        }
+
+        // Final status report (optional)
+        cout << "All tasks processed in topological order." << endl;
+    }
+};
+
+// Example usage
+int main() {
+    TaskScheduler scheduler;                              // create the scheduler
+
+    // Create tasks (IDs need not be contiguous but must be unique)
+    TaskItem* taskA = new TaskItem(10, "Download Data", 2);     // ID 10
+    TaskItem* taskB = new TaskItem(20, "Process Data", 3);      // ID 20
+    TaskItem* taskC = new TaskItem(30, "Generate Report", 1);   // ID 30
+
+    // Define dependencies:
+    // Process Data (20) depends on Download Data (10)
+    taskB->dependencies.push_back(10);
+
+    // Generate Report (30) depends on Process Data (20)
+    taskC->dependencies.push_back(20);
+
+    // Add tasks to scheduler
+    scheduler.addTask(taskA);
+    scheduler.addTask(taskB);
+    scheduler.addTask(taskC);
+
+    // Run scheduler (will run in topological order or report cycle/missing deps)
+    scheduler.run();
+
+    // Free memory (clean up)
+    delete taskA;
+    delete taskB;
+    delete taskC;
+
+    return 0;
+}
+
