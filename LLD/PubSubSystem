@@ -1,0 +1,181 @@
+### 1. Concept
+- A basic **Publisher–Subscriber (Pub-Sub)** system.
+- Publishers send messages to a **Topic**, and all **Subscribers** of that topic receive those messages asynchronously.
+
+### 2. Functional Requirements (FR)
+- Publisher can publish messages on topics.
+- Subscriber can subscribe to one or more topics.
+- Messages are delivered to all subscribers of that topic.
+- Multiple topics can exist independently.
+- System supports concurrent publishing.
+
+### 3. Non-Functional Requirements (NFR)
+- **Thread safety:** handled via mutex and condition variable.
+- **Scalability:** easily add new topics/subscribers.
+- **Low latency:** real-time message delivery using threads.
+- **Reliability:** message queue ensures all messages are processed.
+- **Extensibility:** new subscriber types can be added easily.
+
+### 4. Core Entities
+- **Message:** holds `id` and `payload`.
+- **Subscriber (abstract):** defines `onMessage()` interface.
+- **WeatherSubscriber / IntNewsSubscriber / LocalNewsSubscriber:** concrete subscriber implementations.
+- **Topic:**
+  - Holds list of subscribers.
+  - Maintains queue of messages.
+  - Runs a dispatcher thread to deliver messages asynchronously.
+- **PubSub (Broker):**
+  - Manages all topics.
+  - Provides APIs for adding topics, subscribers, and publishing messages.
+
+### 5. Core APIs
+- `addTopic(string tName)` → create a topic.
+- `addSubscriber(string tName, Subscriber* s)` → subscribe to a topic.
+- `publish(string tName, Message* msg)` → publish message to a topic.
+- `stopPublish()` → stop all dispatcher threads safely.
+
+### 6. Flow
+1. Broker creates topics.
+2. Subscribers register to topics.
+3. Publishers publish messages.
+4. Dispatcher thread wakes up and delivers messages to all subscribers.
+5. On shutdown, all threads are joined safely.
+
+----------------------------------------------------------------------------------------------------------------
+
+#include<bits/stdc++.h> 
+using namespace std;
+class Message{
+	public:
+	int id;
+	string payLoad;
+	Message(int id_, string payLoad_):id(id_),payLoad(payLoad_){}
+};
+class Subscriber{
+	public:
+	string name;
+	Subscriber(string name_):name(name_){}
+	virtual void onMessage(Message* msg)=0;
+	virtual ~Subscriber()=default;
+};
+class WeatherSubscriber:public Subscriber{
+	public:
+	WeatherSubscriber(string name):Subscriber(name){}
+	void onMessage(Message* msg){
+		cout<<"Hi "<<name<<"! Weather News : "<<msg->payLoad<<endl;
+	}
+};
+class IntNewsSubscriber:public Subscriber{
+	public:
+	IntNewsSubscriber(string name):Subscriber(name){}
+	void onMessage(Message* msg){
+		cout<<"Hi "<<name<<"! International News : "<<msg->payLoad<<endl;
+	}
+};
+class LocalNewsSubscriber:public Subscriber{
+	public:
+	LocalNewsSubscriber(string name):Subscriber(name){}
+	void onMessage(Message* msg){
+		cout<<"Hi "<<name<<"! Local News : "<<msg->payLoad<<endl;
+	}
+};
+class Topic{
+	public:
+	string name;
+	vector<Subscriber*> subs;
+	queue<Message*> q;
+	thread t; mutex m; condition_variable cv; bool stop = false;
+	void dispatcher(){
+		while(true){
+			unique_lock<mutex> lock(m);
+			cv.wait(lock, [this](){return !q.empty() || stop; });
+			if(q.empty() && stop)break;
+		    auto top = q.front(); q.pop();
+			lock.unlock();
+			for(int i=0 ; i<subs.size() ; i++){
+				if(subs[i]!=NULL)subs[i]->onMessage(top);
+			}
+		}	
+	}
+	public:
+	Topic(string name_):name(name_){
+		t = thread(&Topic::dispatcher, this);
+	}
+	void addSubs(Subscriber* s){
+		unique_lock<mutex> lock(m);
+		subs.push_back(s);
+		lock.unlock();
+	}
+	void publish(Message* msg){
+		unique_lock<mutex> lock(m);
+		q.push(msg);
+		cv.notify_one();
+		lock.unlock();
+	}
+	void stopPublish(){
+		unique_lock<mutex> lock(m);
+		stop = true;
+		cv.notify_all();
+		lock.unlock();
+		if(t.joinable())t.join();
+	}
+};
+class PubSub{
+	public:
+	unordered_map<string, Topic*> mp;
+	PubSub(){}
+	void addTopic(string tName){
+		if(mp.count(tName)!=0)return;
+		mp[tName]=new Topic(tName);
+	}
+	void addSubscriber(string tName, Subscriber* s){
+	    if(mp.count(tName)==0)addTopic(tName);
+	    mp[tName]->addSubs(s);
+	}
+	void publish(string tName, Message* msg){
+		if(mp.count(tName)==0)addTopic(tName);
+		mp[tName]->publish(msg);
+	}
+	void stopPublish(){
+		for(auto it=mp.begin(); it!= mp.end() ; it++){
+			it->second->stopPublish();
+		}
+	}
+};
+int main(){
+
+ PubSub broker;
+
+    // Step 1: Create topics
+    broker.addTopic("Weather");
+    broker.addTopic("International");
+    broker.addTopic("Local");
+
+    // Step 2: Create subscribers
+    WeatherSubscriber w1("Alice");
+    WeatherSubscriber w2("Rahul");
+    IntNewsSubscriber i1("Bob");
+    LocalNewsSubscriber l1("Charlie");
+
+    // Step 3: Subscribe them to topics
+    broker.addSubscriber("Weather", &w1);
+    broker.addSubscriber("Weather", &w2);
+    broker.addSubscriber("International", &i1);
+    broker.addSubscriber("Local", &l1);
+
+    // Step 4: Publish messages to topics
+    broker.publish("Weather", new Message(1, "It's raining heavily in Delhi!"));
+    broker.publish("Weather", new Message(2, "Sunny weekend expected."));
+    broker.publish("International", new Message(3, "World leaders meet in Geneva."));
+    broker.publish("Local", new Message(4, "City marathon scheduled for Sunday."));
+    broker.publish("Local", new Message(5, "Power outage in Sector 21 tonight."));
+
+    // Step 5: Give threads some time to process
+    this_thread::sleep_for(chrono::seconds(2));
+
+    // Step 6: Stop all publishers and exit
+    broker.stopPublish();
+
+    return 0;
+
+}
