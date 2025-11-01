@@ -1,5 +1,289 @@
+# 🚗 Smart Parking System (Priority Queue Based Nearest Spot Finder)
+
+## 💡 Overview
+A parking system that finds the **nearest available parking spot** using a **priority queue (min-heap)**.
+Each gate maintains its own heap for quick and efficient nearest spot lookup.
+
+---
+
+## ⚙️ Flow
+1. Admin defines parking spots, gates, and their distances.
+2. Each gate builds a **min-heap** with pairs {distance, spotId} for all available spots.
+3. When a vehicle enters, system picks the **nearest spot** from the heap top.
+4. When a spot is booked → it’s **popped** from the heap.
+5. When a spot is freed → it’s **pushed back** into the heap.
+6. System continuously keeps heaps updated to always reflect the nearest free spots.
+
+---
+
+## 🧩 Core Entities
+- **Gate** → Entry/exit point; maintains a priority queue for nearby spots.
+- **ParkingSpot** → Each parking space; has type, ID, and availability.
+- **Vehicle** → User’s vehicle requesting a spot.
+- **ParkingLot** → Central controller managing all gates and spots.
+- **Ticket** → Issued when a spot is allocated; released on exit.
+
+---
+
+## 🧠 Nearest Spot Finding Strategy
+- Each **Gate** stores a **priority queue** (min-heap) → `{distance, spotId}`.
+- Only **available spots** are kept in the heap.
+- **Top element** always gives the **nearest available spot**.
+- When a spot is booked → remove from heap.
+- When it becomes free → push it back.
+- Lookup = **O(1)**, Update (add/remove) = **O(log n)**.
+
+---
+
+## ✅ Functional Requirements (FR)
+- System should allocate nearest available spot to a vehicle.
+- Should support multiple gates and parking types.
+- Should update spot availability in real time.
+- Should generate and close tickets properly.
+
+---
+
+## 🚀 Non-Functional Requirements (NFR)
+- Fast lookup for spot allocation (low latency).
+- Scalable for large parking lots.
+- Consistent and thread-safe data updates.
+- High availability and fault tolerance.
+
+
+# 🚧 Problem:
+# Each gate maintains its own priority queue (PQ) of nearest parking spots.
+# When a vehicle parks through Gate 1, the allocated spot is removed from Gate 1’s PQ,
+# but that same spot still exists in other gates’ PQs (e.g., Gate 2).
+# So Gate 2 may try to allocate an already occupied spot — this is called stale data.
+
+# ✅ Solution:
+# Use a "lazy cleanup" approach.
+# When picking a spot from a PQ, keep popping until we find one that is actually free.
+# If a spot is already occupied (spot->free == false), we skip it and pop the next.
+# This way, old/stale entries are automatically ignored at runtime,
+# avoiding costly PQ updates across all gates.
+
+
+
+#include <bits/stdc++.h>                     // Include all standard C++ libraries
+using namespace std;
+using Clock = chrono::system_clock;          // Alias for tracking entry/exit time
+
+//==========================================================
+// ENUM: VehicleType
+// Defines vehicle categories (2-wheeler or 4-wheeler)
+//==========================================================
+enum class VehicleType { TWO, FOUR };        // Enum for vehicle types
+
+//==========================================================
+// CLASS: Vehicle
+// Represents a vehicle entering the parking lot
+//==========================================================
+class Vehicle {
+public:
+    string plate;                            // Variable: vehicle number plate
+    VehicleType type;                        // Variable: vehicle type
+    Vehicle(string p, VehicleType t) : plate(p), type(t) {}  // Constructor
+};
+
+//==========================================================
+// CLASS: ParkingSpot
+// Represents a single parking spot in the parking lot
+//==========================================================
+class ParkingSpot {
+public:
+    string id;                               // Variable: unique spot ID
+    int floor, num;                          // Variable: floor and spot number
+    VehicleType type;                        // Variable: spot supports TWO/FOUR wheeler
+    bool free;                               // Variable: true if spot is available
+    map<string, int> dist;                   // Variable: distance of this spot from each gate
+
+    ParkingSpot(string i, int f, int n, VehicleType t)        // Constructor
+        : id(i), floor(f), num(n), type(t), free(true) {}     // Initialize spot as free
+};
+
+//==========================================================
+// CLASS: Gate
+// Represents entry/exit gate and maintains nearest free spots
+//==========================================================
+class Gate {
+public:
+    string id;                               // Variable: gate ID
+    bool entry, exit;                        // Variable: gate role flags (entry/exit)
+    unordered_map<VehicleType,               // Variable: map by vehicle type
+        priority_queue<pair<int, string>,    // PQ stores {distance, spotId}
+        vector<pair<int, string>>, greater<>>> pq; // Min-heap (nearest first)
+    
+    Gate(string i, bool e, bool x) : id(i), entry(e), exit(x) {}  // Constructor
+};
+
+//==========================================================
+// CLASS: Ticket
+// Represents a parking ticket issued on entry
+//==========================================================
+class Ticket {
+public:
+    string id;                               // Variable: ticket ID
+    Vehicle v;                               // Variable: vehicle associated
+    ParkingSpot* s;                          // Variable: spot assigned to vehicle
+    Clock::time_point in;                    // Variable: time of entry
+
+    Ticket(string tid, Vehicle v_, ParkingSpot* s_)           // Constructor
+        : id(tid), v(v_), s(s_), in(Clock::now()) {}          // Record entry time
+};
+
+//==========================================================
+// INTERFACE CLASS: SpotSelectionStrategy
+// Defines API for selecting nearest available spot (Strategy pattern)
+//==========================================================
+class SpotSelectionStrategy {
+public:
+    virtual ParkingSpot* selectSpot(         // API: choose best parking spot
+        Gate* gate, unordered_map<string, ParkingSpot*>& spots, VehicleType type) = 0;
+    virtual ~SpotSelectionStrategy() = default; // Virtual destructor
+};
+
+//==========================================================
+// CLASS: NearestFirstStrategy (Strategy Implementation)
+// Selects the closest available spot using gate PQ
+//==========================================================
+class NearestFirstStrategy : public SpotSelectionStrategy {
+public:
+    ParkingSpot* selectSpot(                 // API: override selection strategy
+        Gate* gate, unordered_map<string, ParkingSpot*>& spots, VehicleType type) override {
+        
+        auto& pq = gate->pq[type];           // Variable: access gate’s priority queue
+        while (!pq.empty()) {                // Loop: until queue becomes empty
+            auto [d, sid] = pq.top(); pq.pop();  // Pop nearest spot info
+            auto it = spots.find(sid);           // Lookup spot pointer by ID
+            if (it != spots.end() && it->second->free) // If spot exists and is free
+                return it->second;           // Return the free nearest spot
+        }
+        return nullptr;                      // No available spot found
+    }
+};
+
+//==========================================================
+// CLASS: ParkingLot (Main Context Class)
+// Manages gates, spots, tickets, and applies strategy
+//==========================================================
+class ParkingLot {
+    map<string, Gate*> gates;                // Variable: all gates by ID
+    unordered_map<string, ParkingSpot*> spots;  // Variable: all parking spots by ID
+    map<string, Ticket*> active;             // Variable: active tickets (ongoing parking)
+    int ticketCounter = 0;                   // Variable: ticket number generator
+    SpotSelectionStrategy* strategy;         // Variable: strategy pointer (composition)
+
+public:
+    ParkingLot(SpotSelectionStrategy* s) : strategy(s) {}  // Constructor injects strategy
+
+    void addSpot(ParkingSpot* s) { spots[s->id] = s; }     // API: add new parking spot
+    void addGate(Gate* g) { gates[g->id] = g; }            // API: add new gate
+
+    int dist(ParkingSpot* s, Gate* g) {                    // API: compute distance (dummy logic)
+        return abs(s->floor - 0) * 100 + s->num;           // Example distance formula
+    }
+
+    void precompute() {                                    // API: fill gate PQs initially
+        for (auto& [gid, g] : gates)                       // For each gate
+            for (auto& [sid, s] : spots) {                 // For each spot
+                int d = dist(s, g);                        // Compute distance
+                s->dist[gid] = d;                          // Store per-gate distance
+                if (s->free)                               // If free, add to PQ
+                    g->pq[s->type].push({d, s->id});
+            }
+    }
+
+    string park(string gid, Vehicle v) {                   // API: park a vehicle at given gate
+        if (!gates.count(gid)) { cout << "Invalid gate\n"; return ""; } // Validate gate
+        Gate* g = gates[gid];                              // Get gate pointer
+        ParkingSpot* spot = strategy->selectSpot(g, spots, v.type); // Use strategy to find spot
+        if (!spot) { cout << "No spot available\n"; return ""; }    // Handle no availability
+
+        spot->free = false;                                // Mark spot as occupied
+        string tid = "T" + to_string(++ticketCounter);      // Generate ticket ID
+        active[tid] = new Ticket(tid, v, spot);             // Create and store ticket
+        cout << v.plate << " parked at " << spot->id << " (Ticket " << tid << ")\n"; // Log info
+        return tid;                                         // Return ticket ID
+    }
+
+    void unpark(string tid, string gid) {                   // API: unpark vehicle using ticket
+        if (!active.count(tid)) { cout << "Invalid ticket\n"; return; } // Validate ticket
+        Ticket* t = active[tid];                            // Get ticket info
+        ParkingSpot* s = t->s;                              // Get associated spot
+        s->free = true;                                     // Mark spot as free again
+
+        for (auto& [gid2, g] : gates)                       // For each gate
+            g->pq[s->type].push({s->dist[gid2], s->id});    // Add spot back to PQs
+
+        double hrs = chrono::duration_cast<chrono::hours>(Clock::now() - t->in).count() + 1; // Compute duration
+        double rate = (s->type == VehicleType::TWO ? 10 : 20); // Set rate by vehicle type
+        cout << tid << " exited, Fee: " << hrs * rate << "\n"; // Print parking fee
+
+        delete t; active.erase(tid);                        // Delete ticket from active map
+    }
+};
+
+//==========================================================
+// MAIN FUNCTION (Driver code)
+// Demonstrates NearestFirstStrategy in action
+//==========================================================
+int main() {
+    SpotSelectionStrategy* strat = new NearestFirstStrategy(); // Variable: chosen strategy
+    ParkingLot lot(strat);                      // Variable: parking lot with strategy
+
+    // Create spots for 2 floors, 4 spots each
+    for (int f = 0; f < 2; f++)
+        for (int i = 1; i <= 4; i++)
+            lot.addSpot(new ParkingSpot(         // API: add parking spot
+                "F" + to_string(f) + "_S" + to_string(i),
+                f, i,
+                (i % 2) ? VehicleType::FOUR : VehicleType::TWO)); // Alternate types
+
+    lot.addGate(new Gate("G1", true, true));     // API: add gate 1
+    lot.addGate(new Gate("G2", true, true));     // API: add gate 2
+    lot.precompute();                            // API: precompute distances & PQs
+
+    Vehicle car("CAR123", VehicleType::FOUR);    // Variable: car object
+    Vehicle bike("BIKE456", VehicleType::TWO);   // Variable: bike object
+
+    string t1 = lot.park("G1", car);             // API: park car at gate G1
+    string t2 = lot.park("G1", bike);            // API: park bike at gate G1
+    this_thread::sleep_for(chrono::seconds(1));  // Simulate time delay
+    lot.unpark(t1, "G2");                        // API: unpark car at gate G2
+    lot.unpark(t2, "G1");                        // API: unpark bike at gate G1
+}
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 # Functional Requirements
-1. System should allow creation and setup of a parking lot with multiple floors and parking spots.  
+1. allow creation parking lot with multiple floors and parking spots.  
 2. Support multiple entry and exit gates.  
 3. Park vehicles (2-wheeler / 4-wheeler) and assign the nearest available spot from the chosen entry gate.  
 4. On entry, issue a ticket with timestamp and assigned spot.  
@@ -50,18 +334,9 @@
 -----------------------------------------------------------------------------------------------------------------------------------------------------
 #include <bits/stdc++.h>
 using namespace std;
-using Clock = chrono::system_clock;
-
-/////////////////////////////////////////////////////////////
-// ENUMS
-/////////////////////////////////////////////////////////////
 
 // Represents type of vehicle
 enum class VehicleType { TWO_WHEELER, FOUR_WHEELER };
-
-/////////////////////////////////////////////////////////////
-// VEHICLE CLASS
-/////////////////////////////////////////////////////////////
 
 class Vehicle {
     string plate;                 // Vehicle registration number
@@ -71,10 +346,6 @@ public:
     VehicleType getType() const { return type; }   // returns vehicle type
     string getPlate() const { return plate; }      // returns vehicle number
 };
-
-/////////////////////////////////////////////////////////////
-// PARKING SPOT CLASS
-/////////////////////////////////////////////////////////////
 
 class ParkingSpot {
     string id;                               // unique id of spot
@@ -105,10 +376,6 @@ public:
     int getDistance(const string& gateId) const { return distancesFromGate.at(gateId); } // get distance
 };
 
-/////////////////////////////////////////////////////////////
-// FLOOR CLASS
-/////////////////////////////////////////////////////////////
-
 class Floor {
     int floorNumber;                  // floor number
     vector<ParkingSpot*> spots;       // collection of spots on this floor
@@ -118,10 +385,6 @@ public:
     const vector<ParkingSpot*>& getSpots() const { return spots; } // get all spots
     int getFloorNumber() const { return floorNumber; }           // get floor number
 };
-
-/////////////////////////////////////////////////////////////
-// GATE CLASS
-/////////////////////////////////////////////////////////////
 
 class Gate {
     string id;                                        // unique gate id
@@ -139,10 +402,6 @@ public:
     bool isExitGate() const { return exit; }          // check if exit
     int getFloorNumber() const { return floorNumber; }// get floor number
 };
-
-/////////////////////////////////////////////////////////////
-// TICKET CLASS
-/////////////////////////////////////////////////////////////
 
 class Ticket {
     string id;                          // ticket id
@@ -162,10 +421,6 @@ public:
     void deactivate() { active = false; }             // deactivate ticket
 };
 
-/////////////////////////////////////////////////////////////
-// PAYMENT SERVICE
-/////////////////////////////////////////////////////////////
-
 class PaymentService {
     map<VehicleType, double> hourlyRate; // rate per hour per vehicle type
 public:
@@ -181,10 +436,6 @@ public:
         return rate * hours;
     }
 };
-
-/////////////////////////////////////////////////////////////
-// STRATEGY PATTERN INTERFACE
-/////////////////////////////////////////////////////////////
 
 class SpotSelectionStrategy {
 public:
@@ -269,18 +520,23 @@ public:
         return vertical + horizontal;
     }
 
-    // Precompute distances for all spots to all gates
-    void precompute() {
-        for (auto& gid_gptr : gates) {
-            string gid = gid_gptr.first;
-            Gate* gate = gid_gptr.second;
-            for (auto& sid_spot : allSpots) {
-                ParkingSpot* spot = sid_spot.second;
-                int dist = computeDistance(spot, gate);
-                spot->setDistance(gid, dist);
-            }
-        }
-    }
+   void precompute() {
+    // For every gate
+    for (auto& gateEntry : gates) {
+        Gate* gate = gateEntry.second;
+
+        // For every parking spot
+        for (auto& spotEntry : allSpots) {
+            ParkingSpot* spot = spotEntry.second;
+
+            // Calculate distance from this gate to this spot
+            int dist = computeDistance(spot, gate);
+
+            // Store this distance in the spot’s distance map
+            spot->setDistance(gateEntry.first, dist);
+           }
+       }
+   }
 
     // Park a vehicle using selected strategy
     string parkVehicle(const string& gateId, const Vehicle& vehicle) {
