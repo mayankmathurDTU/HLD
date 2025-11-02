@@ -1,0 +1,110 @@
++-----------------------------+
+|        APPROACH             |
++-----------------------------+
+| 1. Each partner (like Facebook, Amazon) has its own rate limiter.       |
+| 2. The limiter works like a leaky bucket.                               |
+| 3. Bucket stores number of requests made so far.                        |
+| 4. Each request checks if bucket is full (limit reached).               |
+| 5. If not full → allow request, else reject.                            |
+| 6. Over time, old requests “leak” out based on rate (requests per sec). |
+| 7. So total requests stay within limit even if many come together.      |
+
++-----------------------------+
+| FUNCTIONAL REQUIREMENTS (FR)|
++-----------------------------+
+| 1. Allow partners to call API within a fixed rate.                      |
+| 2. Each partner has a daily or per-second limit.                        |
+| 3. System must reject extra requests after limit is reached.            |
+| 4. Requests reset automatically after time window (leaky bucket).       |
+
++-----------------------------+
+| NON FUNCTIONAL REQUIREMENTS |
++-----------------------------+
+| 1. Must be thread-safe (if multiple threads use it).                    |
+| 2. Must be scalable for many partners.                                 |
+| 3. Should have low latency to check request.                           |
+| 4. Easy to modify rate or limit per partner.                           |
+
++-----------------------------+
+|        CORE ENTITIES        |
++-----------------------------+
+| 1. Partner → name, RateLimiter object.                                 |
+| 2. RateLimiter → manages request rate for each partner.                |
+| 3. Bucket → stores how many tokens (requests) used and time updated.   |
+
++-----------------------------+
+|            APIS             |
++-----------------------------+
+| 1. allowRequest(partnerName): bool → Check if request allowed or not.  |
+| 2. addPartner(name, limit, rate): void → Add new partner.              |
+| 3. simulateRequests(): void → Simulate multiple API calls.             |
+
+
+
+#include <iostream>      // for printing
+#include <unordered_map> // to store mapping of partner name to their bucket
+#include <chrono>        // for measuring time difference
+#include <thread>        // for simulating delay between requests
+#include <string>        // for partner names
+using namespace std;
+using Clock = chrono::steady_clock; // steady clock for consistent timing
+
+// Class for each partner's leaky bucket
+class LeakyBucket {
+    long long capacity;          // max number of requests allowed at a time
+    double leakRate;             // how many requests leak out per second
+    double currentLevel;         // current number of filled requests in bucket
+    chrono::time_point<Clock> lastUpdate; // last time the bucket leaked
+
+public:
+    LeakyBucket(long long cap = 1000000, double leak = 1000.0) {  // constructor with default limit
+        capacity = cap;              // store max capacity
+        leakRate = leak;             // store leak rate (req/sec)
+        currentLevel = 0;            // initially bucket is empty
+        lastUpdate = Clock::now();   // record current time as last update
+    }
+
+    bool allowRequest() { // method to decide whether to allow new request
+        auto now = Clock::now(); // get current time
+        double seconds = chrono::duration<double>(now - lastUpdate).count(); // calculate seconds passed
+        double leaked = seconds * leakRate; // how many requests have leaked out since last update
+        currentLevel = max(0.0, currentLevel - leaked); // reduce filled requests by leaked amount
+        lastUpdate = now; // update the last leak time to now
+
+        if (currentLevel + 1 <= capacity) { // if bucket not full
+            currentLevel += 1; // add one new request
+            return true; // request allowed
+        }
+        return false; // if bucket full → reject request
+    }
+};
+
+// Class to manage multiple partners
+class RateLimiter {
+    unordered_map<string, LeakyBucket> partners; // map of partner name to their leaky bucket
+
+public:
+    void setLimit(const string &name, long long capacity, double leakRate) { // assign limit per partner
+        partners[name] = LeakyBucket(capacity, leakRate); // create new bucket for partner
+    }
+
+    bool allowRequest(const string &name) { // check if partner’s request allowed
+        if (partners.find(name) == partners.end()) // if partner not present yet
+            partners[name] = LeakyBucket(); // assign default bucket
+        return partners[name].allowRequest(); // ask partner’s bucket if request allowed
+    }
+};
+
+// Example usage
+int main() {
+    RateLimiter rl; // create rate limiter manager
+
+    rl.setLimit("Facebook", 10, 2); // Facebook can send 10 requests max, leaks 2/sec
+    rl.setLimit("Amazon", 5, 1);    // Amazon can send 5 requests max, leaks 1/sec
+
+    for (int i = 1; i <= 15; ++i) { // simulate 15 requests from Facebook
+        bool ok = rl.allowRequest("Facebook"); // check if request is allowed
+        cout << "Facebook Req " << i << " => " << (ok ? "Allowed" : "Rejected") << endl; // print result
+        this_thread::sleep_for(chrono::milliseconds(300)); // wait 0.3 sec between requests
+    }
+}
