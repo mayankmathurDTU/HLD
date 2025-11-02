@@ -85,3 +85,74 @@ int main() {
 
     return 0;
 }
+
+
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+#include <iostream>   // for input-output
+#include <string>     // for using std::string
+using namespace std;
+
+// ---------- Step 1: Define Strategy Interface ----------
+class NotificationStrategy {
+public:
+    virtual void send(string msg) = 0;      // pure virtual method to send a message
+    virtual ~NotificationStrategy() {}      // virtual destructor for cleanup
+};
+
+// ---------- Step 2: Concrete Strategies ----------
+class SMSNotification : public NotificationStrategy {       // handles SMS sending
+public:
+    void send(string msg) override {                        // override send() for SMS
+        cout << "Sending SMS: " << msg << endl;              // print message to console
+    }
+};
+
+class WhatsAppNotification : public NotificationStrategy {   // handles WhatsApp sending
+public:
+    void send(string msg) override {                        // override send() for WhatsApp
+        cout << "Sending WhatsApp: " << msg << endl;         // print message to console
+    }
+};
+
+class PushNotification : public NotificationStrategy {       // handles Push notification
+public:
+    void send(string msg) override {                        // override send() for Push
+        cout << "Sending Push: " << msg << endl;             // print message to console
+    }
+};
+
+// ---------- Step 3: Context Class ----------
+class NotificationService {                                 // uses a chosen strategy
+    NotificationStrategy* strategy;                         // holds a strategy object
+public:
+    NotificationService(NotificationStrategy* s) : strategy(s) {} // constructor injects strategy
+    void sendMessage(string msg) {                          // sends message using strategy
+        strategy->send(msg);                                // delegate to the strategy's send()
+    }
+};
+
+// ---------- Step 4: Client Code ----------
+int main() {
+    SMSNotification sms;                                    // create SMS strategy object
+    WhatsAppNotification whatsapp;                          // create WhatsApp strategy object
+    PushNotification push;                                  // create Push strategy object
+
+    NotificationService service1(&sms);                     // use SMS strategy
+    service1.sendMessage("Hello via SMS!");                  // send message via SMS
+
+    NotificationService service2(&whatsapp);                // use WhatsApp strategy
+    service2.sendMessage("Hello via WhatsApp!");             // send message via WhatsApp
+
+    NotificationService service3(&push);                    // use Push strategy
+    service3.sendMessage("Hello via Push!");                 // send message via Push
+
+    return 0;                                               // end program
+}
