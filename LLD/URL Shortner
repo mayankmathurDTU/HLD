@@ -1,0 +1,95 @@
++-------------------------------+
+|          APPROACH             |
++-------------------------------+
+| We create a system that takes a long URL and converts it into a short, unique code using Base62 encoding. |
+| Every long URL is assigned an increasing ID (1, 2, 3...) which is encoded in Base62 (a, b, c...).          |
+| The short code and the original long URL are stored in two maps for quick lookups.                        |
+| When the short code is requested, the system returns the original long URL.                               |
+
+
++-------------------------------+
+|   FUNCTIONAL REQUIREMENTS     |
++-------------------------------+
+| 1. Shorten a long URL into a short Base62 code.                      |
+| 2. Expand a short code back to the original long URL.                |
+| 3. Return the same code if the URL was already shortened before.     |
+| 4. Each short code should be unique for different URLs.              |
+
+
++-------------------------------+
+| NON-FUNCTIONAL REQUIREMENTS   |
++-------------------------------+
+| 1. Fast lookups using hash maps (O(1) time).                         |
+| 2. Compact storage for millions of URLs.                             |
+| 3. Scalable — should work even if many users shorten URLs.           |
+| 4. Reliable — no duplicate short codes.                              |
+| 5. Extendable — can later add database or persistence easily.        |
+
++-------------------------------+
+|        CORE ENTITIES          |
++-------------------------------+
+| 1. Base62 Encoder — converts numbers to short strings (like a, b, c).|
+| 2. TinyURL — main service class handling shorten and expand logic.   |
+| 3. Maps — store relationships: long→short and short→long.            |
+| 4. Counter — generates new unique IDs for every new URL.             |
+
+
++-------------------------------+
+|            APIs               |
++-------------------------------+
+| 1. shorten(string longUrl): returns short Base62 code.               |
+| 2. expand(string shortCode): returns original long URL.              |
+| 3. (optional) printAll(): prints all URL mappings (for debugging).   |
+
+
+#include <iostream>          // for input-output
+#include <unordered_map>     // for storing mappings
+#include <string>            // for string operations
+using namespace std;
+
+// Helper class for Base62 encoding
+class Base62 {
+    string chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; // 62 chars
+public:
+    string encode(int n) {                        // convert number to base62 string
+        string s = "";
+        while (n > 0) { s = chars[n % 62] + s; n /= 62; }
+        return s == "" ? "a" : s;                 // if n=0, return 'a'
+    }
+};
+
+// Main TinyURL class
+class TinyURL {
+    unordered_map<string, string> longToShort;    // map long URL → short code
+    unordered_map<string, string> shortToLong;    // map short code → long URL
+    int counter = 1;                              // for unique ID
+    Base62 b62;                                   // helper for encoding
+
+public:
+    string shorten(string longUrl) {              // make short URL
+        if (longToShort.count(longUrl))           // if already shortened
+            return longToShort[longUrl];          // return old code
+        string code = b62.encode(counter++);      // encode counter using base62
+        longToShort[longUrl] = code;              // store mapping
+        shortToLong[code] = longUrl;              // reverse map
+        return code;                              // return short code
+    }
+
+    string expand(string code) {                  // get original URL
+        if (shortToLong.count(code))              // if code exists
+            return shortToLong[code];             // return original URL
+        return "Invalid Short URL";               // else invalid
+    }
+};
+
+// Example usage
+int main() {
+    TinyURL t;                                    // create TinyURL object
+    string s1 = t.shorten("https://google.com");  // shorten google
+    cout << "Short: " << s1 << endl;              // show short code
+    cout << "Long: " << t.expand(s1) << endl;     // expand it back
+
+    string s2 = t.shorten("https://openai.com");  // shorten openai
+    cout << "Short: " << s2 << endl;
+    cout << "Long: " << t.expand(s2) << endl;
+}
