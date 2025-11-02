@@ -1,0 +1,213 @@
+
+1. A vending machine can be in different states like Idle, HasMoney, etc.
+2. Each state behaves differently for the same action (e.g., pressing “Insert Cash”).
+3. Instead of using if-else everywhere, we create separate classes for each state.
+4. The machine holds a reference to the current state and delegates actions to it.
+5. Each state decides what to do next (like move to next state, refund, or dispense).
+6. This makes the code clean, modular, and easy to add new states later.
+
+
+#include <iostream>
+#include <string>
+using namespace std;
+
+class VendingMachine; // forward declaration so compiler knows this class exists
+
+class State { }; // base class - all other states (Idle, HasMoney, etc.) will inherit from this
+
+class VendingMachine { }; // main machine class - will hold current state and switch between states
+
+class IdleState : public State { }; // when machine is waiting for user to insert money
+
+class HasMoneyState : public State { }; // when user has inserted money into the machine
+
+class SelectionState : public State { }; // when user is selecting which product to buy
+
+class DispenseProductState : public State { }; // when machine is dispensing the selected product
+
+------------------------------------------------------
+
+#include <iostream>
+#include <string>
+using namespace std;
+
+class VendingMachine; // Forward declaration (used before defining it)
+
+// ===================== State Interface =====================
+class State {
+public:
+    virtual void insertCash(VendingMachine* vm) = 0;          // User presses "Insert Cash"
+    virtual void addMoney(VendingMachine* vm, int amount) = 0; // User adds money
+    virtual void selectProduct(VendingMachine* vm, string product) = 0; // User selects product
+    virtual void cancelTransaction(VendingMachine* vm) = 0;   // User cancels
+    virtual void dispense(VendingMachine* vm) = 0;            // Machine dispenses product
+    virtual ~State() = default;                               // Virtual destructor
+};
+
+// ===================== VendingMachine Context =====================
+class VendingMachine {
+    // All possible states of the machine
+    State* idleState;
+    State* hasMoneyState;
+    State* selectionState;
+    State* dispenseState;
+
+    // The machine’s current state
+    State* currentState;
+
+    // Data members
+    int balance;           // how much money user has inserted
+    string chosenProduct;  // product user wants
+
+public:
+    // Constructor — create all state objects and set default state
+    VendingMachine() {
+        idleState = new IdleState();
+        hasMoneyState = new HasMoneyState();
+        selectionState = new SelectionState();
+        dispenseState = new DispenseProductState();
+
+        currentState = idleState; // machine starts idle
+        balance = 0;
+    }
+
+    // User actions (delegate to current state)
+    void insertCash() { currentState->insertCash(this); }
+    void addMoney(int amt) { currentState->addMoney(this, amt); }
+    void selectProduct(string product) { currentState->selectProduct(this, product); }
+    void cancelTransaction() { currentState->cancelTransaction(this); }
+    void dispense() { currentState->dispense(this); }
+
+    // Change the current state
+    void setState(State* st) { currentState = st; }
+
+    // State getters (used by state classes for transitions)
+    State* getIdleState() { return idleState; }
+    State* getHasMoneyState() { return hasMoneyState; }
+    State* getSelectionState() { return selectionState; }
+    State* getDispenseState() { return dispenseState; }
+
+    // Balance handling
+    void addBalance(int amt) { balance += amt; }
+    void resetBalance() { balance = 0; }
+    int getBalance() { return balance; }
+
+    // Product handling
+    void setProduct(string p) { chosenProduct = p; }
+    string getProduct() { return chosenProduct; }
+};
+
+// ===================== Concrete States =====================
+
+// ---------- 1. Idle State ----------
+class IdleState : public State {
+public:
+    void insertCash(VendingMachine* vm) override {
+        cout << "Cash inserted. Moving to HasMoneyState.\n";
+        vm->setState(vm->getHasMoneyState()); // go to next state
+    }
+    void addMoney(VendingMachine* vm, int amount) override {
+        cout << "You need to press 'Insert Cash' first.\n";
+    }
+    void selectProduct(VendingMachine* vm, string product) override {
+        cout << "Insert cash before selecting a product.\n";
+    }
+    void cancelTransaction(VendingMachine* vm) override {
+        cout << "No transaction to cancel.\n";
+    }
+    void dispense(VendingMachine* vm) override {
+        cout << "You must insert cash first.\n";
+    }
+};
+
+// ---------- 2. HasMoney State ----------
+class HasMoneyState : public State {
+public:
+    void insertCash(VendingMachine* vm) override {
+        cout << "Already inserted cash. You can add more money.\n";
+    }
+    void addMoney(VendingMachine* vm, int amount) override {
+        vm->addBalance(amount);
+        cout << "Added " << amount << " units. Current balance: " << vm->getBalance() << "\n";
+    }
+    void selectProduct(VendingMachine* vm, string product) override {
+        if (vm->getBalance() <= 0) {
+            cout << "No balance! Please add money.\n";
+            return;
+        }
+        cout << "Balance available. Moving to SelectionState.\n";
+        vm->setState(vm->getSelectionState());
+    }
+    void cancelTransaction(VendingMachine* vm) override {
+        cout << "Transaction cancelled. Returning " << vm->getBalance() << " units.\n";
+        vm->resetBalance();
+        vm->setState(vm->getIdleState());
+    }
+    void dispense(VendingMachine* vm) override {
+        cout << "You need to select a product first.\n";
+    }
+};
+
+// ---------- 3. Selection State ----------
+class SelectionState : public State {
+public:
+    void insertCash(VendingMachine* vm) override {
+        cout << "You already inserted cash. Select product.\n";
+    }
+    void addMoney(VendingMachine* vm, int amount) override {
+        cout << "Cannot add more money now. Finish selection.\n";
+    }
+    void selectProduct(VendingMachine* vm, string product) override {
+        vm->setProduct(product);
+        cout << "Product '" << product << "' selected. Moving to Dispense state.\n";
+        vm->setState(vm->getDispenseState());
+        vm->dispense(); // automatically dispense product
+    }
+    void cancelTransaction(VendingMachine* vm) override {
+        cout << "Transaction cancelled. Returning " << vm->getBalance() << " units.\n";
+        vm->resetBalance();
+        vm->setState(vm->getIdleState());
+    }
+    void dispense(VendingMachine* vm) override {
+        cout << "Wait! Product not yet selected.\n";
+    }
+};
+
+// ---------- 4. Dispense Product State ----------
+class DispenseProductState : public State {
+public:
+    void insertCash(VendingMachine* vm) override {
+        cout << "Please wait, dispensing product.\n";
+    }
+    void addMoney(VendingMachine* vm, int amount) override {
+        cout << "Cannot add money while dispensing.\n";
+    }
+    void selectProduct(VendingMachine* vm, string product) override {
+        cout << "Already dispensing product.\n";
+    }
+    void cancelTransaction(VendingMachine* vm) override {
+        cout << "Too late to cancel. Product is being dispensed.\n";
+    }
+    void dispense(VendingMachine* vm) override {
+        cout << "Dispensing product: " << vm->getProduct() << "\n";
+        vm->resetBalance(); // reset money
+        vm->setState(vm->getIdleState()); // back to start
+    }
+};
+
+// ===================== Demo =====================
+int main() {
+    VendingMachine vm;
+
+    vm.insertCash();            // Move Idle → HasMoney
+    vm.addMoney(50);            // Add money
+    vm.selectProduct("Coke");   // Move to Selection → Dispense
+    // Automatically dispenses and resets to Idle
+
+    cout << "\n--- Another flow ---\n";
+    vm.insertCash();
+    vm.addMoney(30);
+    vm.cancelTransaction();     // Refund money and reset
+
+    return 0;
+}
