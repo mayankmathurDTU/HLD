@@ -1,0 +1,87 @@
+# 1️⃣ Purpose
+#   A Notification Service manages sending messages like Email, SMS, or Push alerts.
+#   It ensures all notifications are sent through one central, consistent object.
+
+# 2️⃣ Why Singleton
+#   - Only one instance is needed across the system.
+#   - Prevents multiple configurations or duplicate message dispatchers.
+#   - Ensures thread-safe, consistent access to notification APIs.
+
+# 3️⃣ Class: NotificationService
+#   - Private constructor -> prevents creating multiple objects.
+#   - Deleted copy constructor and assignment -> avoids accidental copies.
+#   - Public static getInstance() -> provides access to the single global instance.
+#   - Methods like sendEmail(), sendSMS(), sendPush() -> handle message delivery.
+
+# 4️⃣ Working
+#   - First time getInstance() is called -> creates the object.
+#   - Next time -> returns the already created instance.
+#   - Every call uses the same NotificationService instance.
+
+# 5️⃣ Example Flow
+#   NotificationService::getInstance()->sendEmail("Welcome user!");
+#   NotificationService::getInstance()->sendSMS("OTP: 1234");
+#   -> both calls use the same NotificationService object.
+
+# 6️⃣ Benefits
+#   ✅ Only one instance in memory.
+#   ✅ Easy configuration management.
+#   ✅ Thread-safe access (if Meyers Singleton used).
+#   ✅ Consistent logging, retry, and error handling across notifications.
+
+# 7️⃣ Typical Use Cases
+#   - User signup emails.
+#   - OTP or alert SMS.
+#   - App push notifications.
+
+
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------
+
+
+#include <bits/stdc++.h>
+using namespace std;
+
+// -------- Notification Service (Singleton) --------
+class NotificationService {
+    NotificationService() {}                                      // private constructor — no one can create directly
+    NotificationService(const NotificationService&) = delete;     // disable copy constructor
+    NotificationService& operator=(const NotificationService&) = delete; // disable assignment
+
+public:
+    static NotificationService& getInstance() {                   // static method to get the single instance
+        static NotificationService instance;                      // created only once (Meyers Singleton)
+        return instance;                                           // return reference to the same object
+    }
+
+    void sendEmail(string user, string msg) {                     // method to send email notification
+        cout << "Sending EMAIL to " << user << ": " << msg << endl;
+    }
+
+    void sendSMS(string user, string msg) {                       // method to send SMS notification
+        cout << "Sending SMS to " << user << ": " << msg << endl;
+    }
+
+    void sendPush(string user, string msg) {                      // method to send push notification
+        cout << "Sending PUSH Notification to " << user << ": " << msg << endl;
+    }
+};
+
+// -------- Main --------
+int main() {
+    NotificationService& service = NotificationService::getInstance();   // get single instance
+    service.sendEmail("Alice", "Welcome to our app!");                   // send email
+    service.sendSMS("Bob", "Your OTP is 123456");                        // send sms
+    service.sendPush("Charlie", "You have a new message!");              // send push
+
+    // Even if called again, it uses the same instance
+    NotificationService& service2 = NotificationService::getInstance();
+    service2.sendEmail("Dave", "Your account is activated!");
+
+    return 0;
+}
