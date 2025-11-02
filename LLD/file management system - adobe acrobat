@@ -1,0 +1,158 @@
+# ======================  Adobe Acrobat File System (LLD) ======================
+
+# ======================  APPROACH  ======================
+| Step | Description |
+|------|--------------|
+| 1 | Design a simple C++ system to manage PDF documents (upload, version, annotate). |
+| 2 | Use in-memory storage (unordered_map, vector) for demo. |
+| 3 | Create core classes: Document, Version, Annotation, and DocumentService. |
+| 4 | Implement simple console-based operations (no file handling). |
+| 5 | Focus on modular and readable code, not complex features. |
+
+# ======================  FUNCTIONAL REQUIREMENTS (FR) ======================
+| No. | Requirement |
+|-----|--------------|
+| 1 | Upload a new PDF document. |
+| 2 | Add new versions of a document. |
+| 3 | Add, list, and delete annotations. |
+| 4 | Show document metadata. |
+| 5 | Simple in-memory storage of data. |
+
+# ======================  NON-FUNCTIONAL REQUIREMENTS (NFR) ======================
+| No. | Requirement |
+|-----|--------------|
+| 1 | Simple and modular code. |
+| 2 | Easy to extend later. |
+| 3 | Fast (in-memory operations). |
+| 4 | Clean and readable C++ code. |
+
+# ======================  CORE ENTITIES  ======================
+| Entity | Description |
+|---------|-------------|
+| Document | Holds title, owner, versions, annotations. |
+| Version | Stores version number, file name, and timestamp. |
+| Annotation | Stores id, page number, text, and author. |
+| DocumentService | Manages multiple documents. |
+
+# ======================  APIs (Console operations)  ======================
+| API | Description |
+|-----|-------------|
+| createDocument(id, title, owner) | Creates a new document. |
+| addVersion(fileName) | Adds a version to document. |
+| addAnnotation(page, text, author) | Adds a note on a page. |
+| listAnnotations() | Lists all annotations. |
+| deleteAnnotation(id) | Deletes annotation by id. |
+| showInfo() | Shows document info. |
+
+# ======================  C++ IMPLEMENTATION  ======================
+
+#include <iostream>             // for input-output
+#include <string>               // for using string class
+#include <unordered_map>        // for hash map to store docs
+#include <vector>               // for dynamic list of objects
+#include <ctime>                // for time stamps
+using namespace std;            // to avoid writing std:: everywhere
+
+class Version {                 // class to represent one version of document
+public:
+    int versionNo;              // version number
+    string fileName;            // name of uploaded file
+    time_t timestamp;           // upload time
+
+    Version(int no, string name) { versionNo = no; fileName = name; timestamp = time(nullptr); }  // constructor
+};
+
+class Annotation {              // class to store annotation info
+public:
+    int id;                     // unique annotation id
+    int pageNo;                 // which page annotation is on
+    string text;                // annotation text
+    string author;              // who added it
+
+    Annotation(int i, int p, string t, string a) : id(i), pageNo(p), text(t), author(a) {}  // constructor using init list
+};
+
+class Document {                // represents one PDF document
+public:
+    string docId;               // document id
+    string title;               // file title
+    string owner;               // document owner
+    vector<Version> versions;   // list of versions
+    vector<Annotation> annotations; // list of annotations
+
+    Document(string id, string t, string o) : docId(id), title(t), owner(o) {}  // constructor
+
+    void addVersion(string fileName) {                                          // adds a new version
+        int no = versions.size() + 1;                                           // next version number
+        versions.push_back(Version(no, fileName));                              // add to vector
+        cout << "Added version " << no << " for document: " << title << endl;   // print message
+    }
+
+    void addAnnotation(int page, string text, string author) {                  // adds annotation
+        int id = annotations.size() + 1;                                        // generate next id
+        annotations.push_back(Annotation(id, page, text, author));              // store annotation
+        cout << "Annotation added by " << author << " on page " << page << endl; // print confirmation
+    }
+
+    void listAnnotations() {                                                    // list all annotations
+        cout << "Annotations for document '" << title << "':\n";                // heading
+        for (auto &a : annotations) {                                           // loop through annotations
+            cout << "ID:" << a.id << " Page:" << a.pageNo                       // print annotation details
+                 << " Author:" << a.author << " Text:" << a.text << endl;
+        }
+    }
+
+    void deleteAnnotation(int id) {                                             // delete annotation by id
+        for (auto it = annotations.begin(); it != annotations.end(); ++it) {    // loop annotations
+            if (it->id == id) {                                                 // if found
+                cout << "Deleted annotation id " << id << endl;                 // print message
+                annotations.erase(it);                                          // remove it
+                return;                                                         // exit function
+            }
+        }
+        cout << "Annotation not found.\n";                                      // if not found
+    }
+
+    void showInfo() {                                                           // show document details
+        cout << "\nDocument ID: " << docId                                      // print doc id
+             << "\nTitle: " << title                                            // print title
+             << "\nOwner: " << owner                                            // print owner
+             << "\nVersions: " << versions.size()                               // number of versions
+             << "\nAnnotations: " << annotations.size() << endl;                // number of annotations
+    }
+};
+
+class DocumentService {                                                         // manages multiple documents
+    unordered_map<string, Document*> docs;                                      // map of docId -> Document
+public:
+    Document* createDocument(string id, string title, string owner) {           // creates new doc
+        docs[id] = new Document(id, title, owner);                              // allocate new doc
+        cout << "Document created: " << title << endl;                          // print message
+        return docs[id];                                                        // return pointer
+    }
+
+    Document* getDocument(string id) {                                          // fetch doc by id
+        if (docs.find(id) != docs.end())                                        // if found
+            return docs[id];                                                    // return it
+        cout << "Document not found.\n";                                        // otherwise message
+        return nullptr;                                                         // return null
+    }
+};
+
+int main() {                                                                    // main function starts
+    DocumentService service;                                                    // create service object
+
+    Document* doc = service.createDocument("D1", "ProjectReport.pdf", "Mayank"); // create a new doc
+
+    doc->addVersion("ProjectReport_v1.pdf");                                    // add first version
+    doc->addVersion("ProjectReport_v2.pdf");                                    // add second version
+
+    doc->addAnnotation(1, "Add introduction", "Mayank");                        // add first annotation
+    doc->addAnnotation(2, "Fix typo", "Aman");                                  // add second annotation
+
+    doc->listAnnotations();                                                     // list all annotations
+    doc->deleteAnnotation(1);                                                   // delete annotation 1
+    doc->showInfo();                                                            // show document info
+
+    return 0;                                                                   // program ends
+}
