@@ -1,0 +1,170 @@
++-----------------------------+
+|          APPROACH           |
++-----------------------------+
+| 1. The client keeps a copy of all files locally.                       |
+| 2. It also stores a local cache of what is on the server.              |
+| 3. Whenever internet is available, files are synced.                   |
+| 4. If power or internet is lost, syncing is paused.                    |
+| 5. When both are restored, syncing continues.                          |
+| 6. If a file is changed both locally and on server, the newer one wins.|
+| 7. This keeps files same on both client and server.                    |
+
++-----------------------------+
+|   FUNCTIONAL REQUIREMENTS (FR) |
++-----------------------------+
+| 1. Add new files locally.                                             |
+| 2. Edit existing files.                                               |
+| 3. Sync local files with server copies.                               |
+| 4. Handle no internet (pause sync).                                   |
+| 5. Handle power failure (pause sync).                                 |
+| 6. Resolve conflicts when both sides are modified.                    |
+
++-----------------------------+
+| NON FUNCTIONAL REQUIREMENTS (NFR) |
++-----------------------------+
+| 1. Should be fast and reliable.                                      |
+| 2. Should not lose data on power failure.                            |
+| 3. Should automatically retry after connection returns.              |
+| 4. Should be simple to maintain and scale.                           |
+| 5. Should log actions for debugging.                                 |
+
++-----------------------------+
+|        CORE ENTITIES        |
++-----------------------------+
+| 1. File → has name, content, lastModified time.                      |
+| 2. GoogleDriveClient → manages local files and syncing.              |
+| 3. ServerCopy (simulated locally) → represents server data.          |
+
++-----------------------------+
+|            APIS             |
++-----------------------------+
+| 1. addFile(name, content): adds a new local file.                    |
+| 2. modifyFile(name, newContent): edits an existing file.             |
+| 3. sync(): syncs local and server copies.                            |
+| 4. disconnectInternet()/connectInternet(): change network state.     |
+| 5. powerOff()/powerOn(): change power state.                         |
+| 6. showLocal(): display local files.                                 |
+
+
+
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <ctime>
+using namespace std;
+
+// Class representing a single file on client system
+class File {
+public:
+    string name;          // file name
+    string content;       // file data
+    time_t lastModified;  // last modification time
+
+    // constructor initializes file with name and content
+    File(string n, string c) {
+        name = n;
+        content = c;
+        lastModified = time(0); // store current time
+    }
+
+    // updates file content and time
+    void modify(string newContent) {
+        content = newContent;
+        lastModified = time(0);
+    }
+};
+
+// Class that simulates local client storage with sync mechanism
+class GoogleDriveClient {
+    unordered_map<string, File> localFiles; // local storage map
+    unordered_map<string, File> serverCopy; // local cached copy of server
+    bool hasInternet; // connection status
+    bool hasPower;    // power status
+
+public:
+    // constructor sets internet and power as true
+    GoogleDriveClient() {
+        hasInternet = true;
+        hasPower = true;
+    }
+
+    // simulate internet disconnection
+    void disconnectInternet() { hasInternet = false; }
+
+    // simulate internet reconnection
+    void connectInternet() { hasInternet = true; }
+
+    // simulate power off
+    void powerOff() { hasPower = false; }
+
+    // simulate power on
+    void powerOn() { hasPower = true; }
+
+    // add a new file to local system
+    void addFile(string name, string content) {
+        localFiles[name] = File(name, content);
+        cout << "Added file: " << name << endl;
+    }
+
+    // modify an existing file
+    void modifyFile(string name, string newContent) {
+        if (localFiles.find(name) != localFiles.end()) {
+            localFiles[name].modify(newContent);
+            cout << "Modified: " << name << endl;
+        }
+    }
+
+    // sync local files with server
+    void sync() {
+        if (!hasPower) { cout << "Sync failed: No Power\n"; return; }
+        if (!hasInternet) { cout << "Sync paused: No Internet\n"; return; }
+
+        for (auto &f : localFiles) {
+            string name = f.first;
+            File &local = f.second;
+
+            // if file not on server, upload directly
+            if (serverCopy.find(name) == serverCopy.end()) {
+                serverCopy[name] = local;
+                cout << "Uploaded new file: " << name << endl;
+            }
+            else {
+                File &server = serverCopy[name];
+                // if local is newer than server, update server
+                if (local.lastModified > server.lastModified) {
+                    server = local;
+                    cout << "Updated server copy: " << name << endl;
+                }
+                // if server newer, update local
+                else if (server.lastModified > local.lastModified) {
+                    local = server;
+                    cout << "Updated local copy: " << name << endl;
+                }
+            }
+        }
+    }
+
+    // print all local files
+    void showLocal() {
+        cout << "--- Local Files ---\n";
+        for (auto &p : localFiles)
+            cout << p.first << " => " << p.second.content << endl;
+    }
+};
+
+// main simulates sync behavior
+int main() {
+    GoogleDriveClient client;      // create client
+
+    client.addFile("notes.txt", "hello");   // add file
+    client.sync();                          // sync with server
+
+    client.modifyFile("notes.txt", "hi");   // modify file
+    client.disconnectInternet();            // internet off
+    client.sync();                          // sync fails due to no net
+
+    client.connectInternet();               // reconnect
+    client.sync();                          // sync works now
+
+    client.showLocal();                     // show final files
+}
