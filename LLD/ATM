@@ -1,0 +1,133 @@
+1. Each note type (₹2000, ₹500, ₹100) is a separate handler.
+2. Handlers are linked in a chain: 2000 -> 500 -> 100.
+3. User enters amount (e.g., ₹3700).
+4. ₹2000 handler gives 1 note (₹2000) → passes ₹1700 to next.
+5. ₹500 handler gives 3 notes (₹1500) → passes ₹200 to next.
+6. ₹100 handler gives 2 notes (₹200) → amount = 0 → done.
+7. If any handler can’t handle remaining amount → print message.
+8. Easy to add new note handlers without changing old code.
+
+
+# ================== Functional Requirements ==================
++----------------------------+------------------------------------------------+
+| Functional Requirement     | Description                                    |
++----------------------------+------------------------------------------------+
+| FR1: Withdraw Cash         | ATM should dispense the requested amount.      |
+| FR2: Use Denominations     | Use ₹2000, ₹500, ₹100 notes for dispensing.    |
+| FR3: Pass Remaining Amount | Pass leftover amount to next dispenser.        |
+| FR4: Handle Unavailable    | Print message if exact amount can’t be given.  |
++----------------------------+------------------------------------------------+
+
+
+# ================== Non-Functional Requirements ==================
++-------------------------+---------------------------------------------------+
+| Non-Functional Req.     | Description                                       |
++-------------------------+---------------------------------------------------+
+| NFR1: Scalability       | Easy to add new denominations (like ₹50).        |
+| NFR2: Maintainability   | Change one dispenser logic without affecting all.|
+| NFR3: Reliability        | Always handle valid inputs correctly.           |
+| NFR4: Reusability       | Same chain logic reusable across ATMs.           |
++-------------------------+---------------------------------------------------+
+
+
+# ================== Core Entities ==================
++--------------------+-----------------------------------------------+
+| Entity / Class     | Role / Description                            |
++--------------------+-----------------------------------------------+
+| CashDispenser      | Abstract base class defining chain logic.     |
+| Dispenser2000      | Handles ₹2000 notes.                          |
+| Dispenser500       | Handles ₹500 notes.                           |
+| Dispenser100       | Handles ₹100 notes.                           |
+| ATM                | Builds the chain and starts dispense process. |
++--------------------+-----------------------------------------------+
+
+
+# ================== APIs / Methods ==================
++---------------------------+--------------------------------------------+
+| API / Method              | Description                                |
++---------------------------+--------------------------------------------+
+| setNext(nextHandler)      | Links next dispenser in chain.             |
+| dispense(amount)          | Dispenses or passes remaining amount.      |
+| getNoteValue()            | Returns note value (e.g., 2000, 500, 100). |
++---------------------------+--------------------------------------------+
+
+
+#include <iostream>   // For console output
+#include <memory>     // For smart pointers (shared_ptr)
+using namespace std;
+
+// Abstract base class for all handlers (dispensers)
+class CashDispenser {
+protected:
+    shared_ptr<CashDispenser> nextDispenser; // Pointer to the next dispenser in the chain
+public:
+    // Set the next handler in the chain
+    void setNext(shared_ptr<CashDispenser> next) {
+        nextDispenser = next;
+    }
+
+    // Try to dispense the requested amount
+    void dispense(int amount) {
+        if (amount >= getNoteValue()) {  // Check if this dispenser can handle part of the amount
+            int numNotes = amount / getNoteValue();  // Number of notes of this denomination
+            int remainder = amount % getNoteValue(); // Remaining amount to be handled by next dispenser
+            cout << "Dispensing " << numNotes << " notes of ₹" << getNoteValue() << endl;
+            if (remainder != 0 && nextDispenser) {
+                nextDispenser->dispense(remainder);  // Pass remainder to next dispenser
+            }
+        } else if (nextDispenser) {
+            // If current dispenser can’t handle, pass entire amount to next
+            nextDispenser->dispense(amount);
+        } else {
+            // No more dispensers — can't dispense this amount
+            cout << "Cannot dispense the remaining amount: ₹" << amount << endl;
+        }
+    }
+
+    virtual ~CashDispenser() = default; // Virtual destructor
+
+protected:
+    // Each subclass defines its own note value (₹2000, ₹500, ₹100)
+    virtual int getNoteValue() const = 0;
+};
+
+// Handler for ₹2000 notes
+class Dispenser2000 : public CashDispenser {
+protected:
+    int getNoteValue() const override { return 2000; }
+};
+
+// Handler for ₹500 notes
+class Dispenser500 : public CashDispenser {
+protected:
+    int getNoteValue() const override { return 500; }
+};
+
+// Handler for ₹100 notes
+class Dispenser100 : public CashDispenser {
+protected:
+    int getNoteValue() const override { return 100; }
+};
+
+int main() {
+    // Create handlers
+    auto dispenser2000 = make_shared<Dispenser2000>();
+    auto dispenser500  = make_shared<Dispenser500>();
+    auto dispenser100  = make_shared<Dispenser100>();
+
+    // Build the chain: 2000 → 500 → 100
+    dispenser2000->setNext(dispenser500);
+    dispenser500->setNext(dispenser100);
+
+    // ATM starts with highest denomination first
+    auto atmChain = dispenser2000;
+
+    cout << "Enter amount to withdraw: ";
+    int amount;
+    cin >> amount;
+
+    cout << "\nProcessing withdrawal of ₹" << amount << "...\n\n";
+    atmChain->dispense(amount);  // Pass amount to the first handler
+
+    return 0;
+}
