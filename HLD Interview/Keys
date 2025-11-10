@@ -34,3 +34,79 @@
 |                    | (cookies, tokens)         | you and website to stay logged in. | → Ends when you log out or session times   |
 |                    |                           | Like a “visitor pass” that expires.| out for safety.                            |
 +--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+
+
+
+
+
+
++-----------------------------------------------------------------------------------------------------+
+|                              🔐  REAL-WORLD FLOW OF KEYS (LOGIN + PAYMENT)                          |
++-----------------------------------------------------------------------------------------------------+
+
+USER (you)
+  |
+  |---> Logs into App -------------------------------------------------------------------------------+
+  |                                                                                                  |
+  |   [Session Key]  : Keeps you logged in temporarily (browser cookie or token)                     |
+  |   [Access Token] : Sent with each request to prove who you are                                   |
+  |   [Refresh Token]: Used to get new Access Token when it expires                                  |
+  |                                                                                                  |
+  +--------------------------------------------------------------------------------------------------+
+                                      |
+                                      v
++-----------------------------------------------------------------------------------------------------+
+|             APP / FRONTEND (mobile app, website, etc.)                                             |
++-----------------------------------------------------------------------------------------------------+
+|   - Stores API Key to identify itself to backend                                                   |
+|   - Generates Idempotency Key for each payment or booking request                                  |
+|   - Sends user Access Token + Idempotency Key + API Key to Backend                                 |
+|                                                                                                   |
+|   Example headers:                                                                                 |
+|   Authorization: Bearer <access_token>                                                             |
+|   Idempotency-Key: order_12345                                                                     |
+|   Api-Key: app_ABCxyz                                                                              |
++-----------------------------------------------------------------------------------------------------+
+                                      |
+                                      v
++-----------------------------------------------------------------------------------------------------+
+|                   BACKEND SERVER / API GATEWAY (e.g. Stripe, Swiggy)                              |
++-----------------------------------------------------------------------------------------------------+
+|   Uses Encryption Keys to:                                                                         |
+|     - Securely communicate (HTTPS / TLS)                                                           |
+|     - Encrypt sensitive data (cards, passwords, etc.)                                              |
+|                                                                                                   |
+|   Checks:                                                                                          |
+|     ✅ API Key → Is this a valid app?                                                              |
+|     ✅ Access Token → Is the user logged in?                                                       |
+|     ✅ Idempotency Key → Has this payment been processed before?                                   |
+|                                                                                                   |
+|   If new → process payment, store in database with:                                                |
+|     • Primary Key   → unique transaction id                                                        |
+|     • Foreign Key   → link to user id                                                              |
++-----------------------------------------------------------------------------------------------------+
+                                      |
+                                      v
++-----------------------------------------------------------------------------------------------------+
+|                          DATABASE (MySQL / PostgreSQL)                                             |
++-----------------------------------------------------------------------------------------------------+
+|   • Primary Key  → Each transaction or user record unique                                           |
+|   • Foreign Key  → Connects user and their payments                                                 |
+|   • Data encrypted using Encryption Keys                                                            |
++-----------------------------------------------------------------------------------------------------+
+                                      |
+                                      v
++-----------------------------------------------------------------------------------------------------+
+|                        RESPONSE SENT BACK TO USER                                                  |
++-----------------------------------------------------------------------------------------------------+
+|   - Returns payment status                                                                        |
+|   - Same Idempotency Key ensures retries don’t duplicate                                           |
+|   - Session Key + Access Token maintain user’s logged-in state                                    |
++-----------------------------------------------------------------------------------------------------+
+
+🧠  LIFETIME SUMMARY:
+---------------------
+Short-lived Keys   → Session Key, Access Token, Idempotency Key (expire soon for safety)
+Long-lived Keys    → API Key, Refresh Token, Encryption Key (needed for stability)
+Permanent Keys     → Primary Key, Foreign Key (database-level identifiers)
+
