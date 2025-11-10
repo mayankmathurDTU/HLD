@@ -1,0 +1,36 @@
++------------------------------------------------------------------------------------------------------------------------------+
+|                                                🔑 KEY TYPES SUMMARY TABLE                                                    |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| KEY TYPE           | WHERE IT’S USED           | LAYMAN EXPLANATION                 | LIFETIME (AND WHY)                         |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Idempotency Key    | Payment APIs, booking     | Prevents duplicate actions — like  | SHORT (few mins–hours)                     |
+|                    | systems (Stripe, Razorpay)| making sure a payment isn’t made   | → Only needed until server confirms        |
+|                    |                           | twice if you click “Pay” twice.    | one request successfully.                  |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| API Key            | External APIs (Google     | Identifies *which app* or *client* | LONG (days to permanent)                   |
+|                    | Maps, OpenAI, Twilio)     | is calling the API — like your app | → Rarely changes; tied to your developer   |
+|                    |                           | having a name badge.               | account or project.                        |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Access Token       | User login APIs, OAuth2,  | Proves the user is *logged in*.    | SHORT (minutes to hours)                   |
+|                    | mobile apps, websites     | Like a temporary ID card you show  | → Short so if it’s stolen, hacker can’t    |
+|                    | (Facebook, Gmail)         | to enter restricted areas.         | misuse it for long.                        |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Refresh Token      | OAuth2, login systems     | Used to get a new access token     | LONG (days to weeks)                       |
+|                    | (Google, Microsoft, etc.) | when old one expires — like a      | → Stays valid longer to avoid forcing      |
+|                    |                           | “renewal pass” for your ID.        | frequent logins.                           |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Primary Key        | Databases (MySQL,         | Unique ID for each row — like a    | PERMANENT                                  |
+|                    | PostgreSQL, etc.)         | roll number in a school record.    | → It never changes for that record.        |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Foreign Key        | Databases (relational     | Connects one table to another —    | PERMANENT                                  |
+|                    | models)                   | like saying “Order #5 belongs to   | → Database design relationship never        |
+|                    |                           | User #2”.                         | changes unless schema changes.             |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Encryption Key     | HTTPS, JWTs, SSL, VPN,    | Used to lock/unlock sensitive data | LONG (depends on system policy)            |
+|                    | databases, storage        | — like a digital key for a vault.  | → Must remain same until key rotation or   |
+|                    |                           |                                   | certificate expiry (weeks–months).         |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
+| Session Key        | Web logins, mobile apps   | Temporary secret shared between    | SHORT (minutes to hours)                   |
+|                    | (cookies, tokens)         | you and website to stay logged in. | → Ends when you log out or session times   |
+|                    |                           | Like a “visitor pass” that expires.| out for safety.                            |
++--------------------+---------------------------+-----------------------------------+--------------------------------------------+
