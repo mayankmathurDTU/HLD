@@ -1,0 +1,143 @@
+LOAD BALANCING
+Problem: many users hit system at same time, single server becomes slow or crashes
+Needed: to distribute traffic and keep system fast and available
+
+1. Entry point via load balancer
+All client requests go to a load balancer first
+Example: user opens amazon, request goes to load balancer, then to one backend server
+
+2. Request distribution strategy
+Load balancer decides which server handles request
+Example: round robin sends request 1 to server A, request 2 to server B
+
+3. Health checks
+Load balancer checks if servers are alive
+Example: if one server crashes, traffic is not sent to it
+
+4. Auto scaling support
+Servers increase or decrease based on traffic
+Example: sale time adds more servers automatically
+
+5. Fault tolerance
+System works even if some servers fail
+Example: one data center fails, traffic goes to another
+
+MICROSERVICE COMMUNICATION
+Problem: many small services must talk to each other
+Needed: without proper communication, system breaks
+
+1. Synchronous communication
+Service waits for response from another service
+Example: order service asks payment service if payment succeeded
+
+2. Asynchronous communication
+Service sends message and continues work
+Example: order placed event sent, notification handled later
+
+3. Service discovery
+Services find each other dynamically
+Example: payment service IP changes but order service still connects
+
+4. API gateway
+Single entry point for clients
+Example: mobile app talks only to gateway, not all services
+
+5. Resilience mechanisms
+Prevents one failure from breaking everything
+Example: payment service slow, requests are stopped temporarily
+
+NOTIFICATION SERVICES
+Problem: notifications should not slow main flow
+Needed: user actions must be fast
+
+1. Dedicated notification service
+Separate service handles notifications
+Example: order service does not send emails itself
+
+2. Event driven triggers
+Notifications are based on events
+Example: order placed event triggers email
+
+3. Channel abstraction
+Same message sent via multiple channels
+Example: email, sms, push from same event
+
+4. Retry and fallback
+Retry on failure or change provider
+Example: sms fails, retry or use another vendor
+
+5. User preference handling
+Users control notification type
+Example: user disables sms, only push is sent
+
+MESSAGE QUEUING
+Problem: slow tasks block user requests
+Needed: decouple services and handle load spikes
+
+1. Decoupling producer and consumer
+Sender does not wait for processing
+Example: order service pushes message and returns response
+
+2. Traffic smoothing
+Queue absorbs sudden spikes
+Example: millions of orders queued and processed slowly
+
+3. Guaranteed delivery
+Messages are not lost
+Example: consumer crashes, message stays in queue
+
+4. Parallel processing
+Multiple consumers process messages
+Example: ten workers process ten messages at once
+
+5. Failure isolation
+Failure does not affect producers
+Example: email service down, orders still succeed
+
+DATABASE SHARDING
+Problem: single database becomes too big and slow
+Needed: scale data and performance
+
+1. Horizontal partitioning
+Data split across databases
+Example: users 1 to 1M in one db, next in another
+
+2. Shard key selection
+Correct key ensures even distribution
+Example: shard by user id not by country
+
+3. Scalability
+New shards added easily
+Example: user base grows, add new shard
+
+4. Improved performance
+Smaller data per database
+Example: queries run faster on smaller data
+
+5. Fault isolation
+One shard failure affects limited users
+Example: one shard down, only its users affected
+
+MESSAGE SEQUENCE WITH UNRELIABLE TIMESTAMPS
+Problem: client clocks are incorrect
+Needed: correct order of messages
+
+1. Server side ordering
+Server decides message order
+Example: chat server assigns sequence numbers
+
+2. Logical clocks
+Counters instead of time
+Example: messages numbered 1, 2, 3
+
+3. Partition based ordering
+Same user or chat goes to same partition
+Example: one chat always handled by same partition
+
+4. Idempotent processing
+Duplicate messages handled safely
+Example: same message received twice, stored once
+
+5. Reconciliation logic
+Server reorders messages if needed
+Example: message 5 arrives before 4, server fixes order
